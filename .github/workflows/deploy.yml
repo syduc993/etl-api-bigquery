@@ -1,0 +1,85 @@
+name: Build and Deploy to Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  PROJECT_ID: sync-nhanhvn-project
+  GAR_LOCATION: us-central1
+  SERVICE_NAME: nhanh-etl-job
+  REGION: asia-southeast1
+
+jobs:
+  deploy:
+    permissions:
+      contents: read
+      id-token: write
+
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - id: 'auth'
+        name: 'Authenticate to Google Cloud'
+        uses: 'google-github-actions/auth@v2'
+        with:
+          credentials_json: '${{ secrets.GCP_SA_KEY }}'
+
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+
+      - name: 'Configure Docker for GCR'
+        run: |
+          gcloud auth configure-docker gcr.io --quiet
+
+      - name: 'Build Docker image'
+        run: |
+          docker build -t gcr.io/$PROJECT_ID/nhanh-etl:$GITHUB_SHA \
+            -t gcr.io/$PROJECT_ID/nhanh-etl:latest \
+            -f docker/Dockerfile .
+
+      - name: 'Push Docker image to GCR'
+        run: |
+          docker push gcr.io/$PROJECT_ID/nhanh-etl:$GITHUB_SHA
+          docker push gcr.io/$PROJECT_ID/nhanh-etl:latest
+
+      - name: 'Deploy to Cloud Run Job'
+        run: |
+          # Check if job exists
+          if gcloud run jobs describe $SERVICE_NAME --region=$REGION --project=$PROJECT_ID 2>/dev/null; then
+            echo "Job exists, updating..."
+            gcloud run jobs update $SERVICE_NAME \
+              --image=gcr.io/$PROJECT_ID/nhanh-etl:$GITHUB_SHA \
+              --region=$REGION \
+              --service-account=$PROJECT_ID@appspot.gserviceaccount.com \
+              --memory=2Gi \
+              --cpu=2 \
+              --max-retries=3 \
+              --task-timeout=3600 \
+              --set-env-vars="GCP_PROJECT=$PROJECT_ID,GCP_REGION=$REGION,BRONZE_BUCKET=$PROJECT_ID-bronze,SILVER_BUCKET=$PROJECT_ID-silver,BRONZE_DATASET=bronze,SILVER_DATASET=silver,GOLD_DATASET=gold,PARTITION_STRATEGY=month,LOG_LEVEL=INFO" \
+              --set-secrets="NHANH_APP_ID=nhanh-app-id:latest,NHANH_BUSINESS_ID=nhanh-business-id:latest,NHANH_ACCESS_TOKEN=nhanh-access-token:latest"
+          else
+            echo "Job does not exist, creating..."
+            gcloud run jobs create $SERVICE_NAME \
+              --image=gcr.io/$PROJECT_ID/nhanh-etl:$GITHUB_SHA \
+              --region=$REGION \
+              --service-account=$PROJECT_ID@appspot.gserviceaccount.com \
+              --memory=2Gi \
+              --cpu=2 \
+              --max-retries=3 \
+              --task-timeout=3600 \
+              --set-env-vars="GCP_PROJECT=$PROJECT_ID,GCP_REGION=$REGION,BRONZE_BUCKET=$PROJECT_ID-bronze,SILVER_BUCKET=$PROJECT_ID-silver,BRONZE_DATASET=bronze,SILVER_DATASET=silver,GOLD_DATASET=gold,PARTITION_STRATEGY=month,LOG_LEVEL=INFO" \
+              --set-secrets="NHANH_APP_ID=nhanh-app-id:latest,NHANH_BUSINESS_ID=nhanh-business-id:latest,NHANH_ACCESS_TOKEN=nhanh-access-token:latest"
+          fi
+
+      - name: 'Deployment Summary'
+        run: |
+          echo "✅ Deployment completed successfully!"
+          echo "Job: $SERVICE_NAME"
+          echo "Region: $REGION"
+          echo "Image: gcr.io/$PROJECT_ID/nhanh-etl:$GITHUB_SHA"
+

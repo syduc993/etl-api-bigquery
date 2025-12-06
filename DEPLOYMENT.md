@@ -1,35 +1,63 @@
 # Deployment Guide
 
-## Automatic Deployment Setup
+## Automatic Deployment với GitHub Actions
 
 Code đã được push lên GitHub: https://github.com/syduc993/etl-api-bigquery.git
 
-### Cloud Build Trigger Setup
+### Thiết lập GitHub Actions (Tự động deploy khi push code)
 
-Để thiết lập tự động deploy khi push code lên GitHub:
-
-1. **Qua Cloud Console:**
-   - Vào [Cloud Build Triggers](https://console.cloud.google.com/cloud-build/triggers?project=sync-nhanhvn-project)
-   - Click "Create Trigger"
-   - Chọn source: GitHub (syduc993/etl-api-bigquery)
-   - Branch: `^main$`
-   - Configuration: Cloud Build configuration file
-   - Location: `cloudbuild.yaml`
-   - Region: `us-central1`
-   - Click "Create"
-
-2. **Qua gcloud CLI:**
+1. **Tạo Service Account Key cho GitHub:**
    ```bash
-   gcloud builds triggers create github \
-     --name="deploy-etl-to-cloud-run" \
-     --repo-name="etl-api-bigquery" \
-     --repo-owner="syduc993" \
-     --branch-pattern="^main$" \
-     --build-config="cloudbuild.yaml" \
-     --region="us-central1"
+   # Tạo service account (nếu chưa có)
+   gcloud iam service-accounts create github-actions \
+     --display-name="GitHub Actions Service Account" \
+     --project=sync-nhanhvn-project
+
+   # Gán quyền cần thiết
+   gcloud projects add-iam-policy-binding sync-nhanhvn-project \
+     --member="serviceAccount:github-actions@sync-nhanhvn-project.iam.gserviceaccount.com" \
+     --role="roles/run.admin"
+
+   gcloud projects add-iam-policy-binding sync-nhanhvn-project \
+     --member="serviceAccount:github-actions@sync-nhanhvn-project.iam.gserviceaccount.com" \
+     --role="roles/storage.admin"
+
+   gcloud projects add-iam-policy-binding sync-nhanhvn-project \
+     --member="serviceAccount:github-actions@sync-nhanhvn-project.iam.gserviceaccount.com" \
+     --role="roles/iam.serviceAccountUser"
+
+   # Tạo key
+   gcloud iam service-accounts keys create github-actions-key.json \
+     --iam-account=github-actions@sync-nhanhvn-project.iam.gserviceaccount.com
    ```
 
-### Manual Deployment
+2. **Thêm Secret vào GitHub:**
+   - Vào repository: https://github.com/syduc993/etl-api-bigquery
+   - Settings → Secrets and variables → Actions
+   - Click "New repository secret"
+   - Name: `GCP_SA_KEY`
+   - Value: Copy toàn bộ nội dung file `github-actions-key.json` (JSON format)
+   - Click "Add secret"
+
+3. **Tự động deploy:**
+   - Mỗi khi push code lên branch `main`, GitHub Actions sẽ tự động:
+     - Build Docker image
+     - Push lên Google Container Registry
+     - Deploy/update Cloud Run Job
+
+### Chạy Job với Date Range qua GitHub Actions
+
+1. Vào repository trên GitHub
+2. Click tab **Actions**
+3. Chọn workflow **"Run ETL Job with Date Range"**
+4. Click **"Run workflow"**
+5. Nhập:
+   - **from_date**: `2025-12-01`
+   - **to_date**: `2025-12-05`
+   - **entity**: `all` (hoặc `bills`, `products`, `customers`, `orders`)
+6. Click **"Run workflow"**
+
+### Manual Deployment (nếu cần)
 
 Nếu cần deploy thủ công:
 
@@ -37,13 +65,13 @@ Nếu cần deploy thủ công:
 gcloud builds submit --config cloudbuild.yaml
 ```
 
-### Running Jobs with Date Range
+### Running Jobs với Date Range (Qua gcloud CLI)
 
-Để chạy job với date range cụ thể:
+Nếu muốn chạy trực tiếp từ terminal:
 
 ```bash
 gcloud run jobs execute nhanh-etl-job \
-  --region=us-central1 \
+  --region=asia-southeast1 \
   --args="--platform=nhanh,--entity=all,--from-date=2025-12-01,--to-date=2025-12-05"
 ```
 
@@ -51,14 +79,14 @@ Hoặc cho một entity cụ thể:
 
 ```bash
 gcloud run jobs execute nhanh-etl-job \
-  --region=us-central1 \
+  --region=asia-southeast1 \
   --args="--platform=nhanh,--entity=bills,--from-date=2025-12-01,--to-date=2025-12-05"
 ```
 
 ### Cloud Run Job Configuration
 
 - **Job Name**: `nhanh-etl-job`
-- **Region**: `us-central1`
+- **Region**: `asia-southeast1`
 - **Memory**: 2Gi
 - **CPU**: 2
 - **Max Retries**: 3
@@ -67,7 +95,7 @@ gcloud run jobs execute nhanh-etl-job \
 ### Environment Variables
 
 - `GCP_PROJECT`: sync-nhanhvn-project
-- `GCP_REGION`: us-central1
+- `GCP_REGION`: asia-southeast1
 - `BRONZE_BUCKET`: sync-nhanhvn-project-bronze
 - `SILVER_BUCKET`: sync-nhanhvn-project-silver
 - `BRONZE_DATASET`: bronze

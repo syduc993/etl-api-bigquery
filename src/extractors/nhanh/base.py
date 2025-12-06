@@ -216,7 +216,8 @@ class NhanhApiClient:
             NhanhAPIError: Nếu request thất bại sau tất cả retries
             AuthenticationError: Nếu authentication thất bại
         """
-        url = f"{self.base_url}{endpoint}"
+        # Construct URL with version
+        url = f"{self.base_url}/v3.0{endpoint}"
         params = {
             "appId": self.credentials["appId"],
             "businessId": self.credentials["businessId"]
@@ -241,6 +242,15 @@ class NhanhApiClient:
                 # Check response code
                 if result.get("code") == 0:
                     error_code = result.get("errorCode", "UNKNOWN_ERROR")
+                    messages = result.get("messages", "Unknown error")
+                    
+                    # Log full error response for debugging
+                    logger.error(
+                        f"API error response",
+                        error_code=error_code,
+                        messages=messages,
+                        full_response=result
+                    )
                     
                     # Handle rate limit error
                     if error_code == "ERR_429":
@@ -254,7 +264,6 @@ class NhanhApiClient:
                         raise AuthenticationError(f"Authentication failed: {error_code}")
                     
                     # Other errors
-                    messages = result.get("messages", "Unknown error")
                     raise NhanhAPIError(f"API error {error_code}: {messages}")
                 
                 # Success

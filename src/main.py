@@ -72,12 +72,7 @@ def extract_entity(
         )
         extractor_kwargs["updated_at_from"] = from_date
         extractor_kwargs["updated_at_to"] = to_date
-        extractor_kwargs["incremental"] = True
-    elif "from_date" in extractor_kwargs and "to_date" in extractor_kwargs:
-        # Use provided date range instead of incremental
-        extractor_kwargs["incremental"] = False
-    else:
-        extractor_kwargs["incremental"] = False
+    # Don't pass incremental parameter to extractors - they don't need it
     
     # Extract data
     try:
@@ -243,8 +238,8 @@ def main():
                 
                 # Prepare extractor kwargs
                 extractor_kwargs = {}
-                if from_date and to_date:
-                    # Use date range for extraction
+                # Only pass date range to extractors that support it (bills)
+                if from_date and to_date and entity == "bills":
                     extractor_kwargs["from_date"] = from_date
                     extractor_kwargs["to_date"] = to_date
                 

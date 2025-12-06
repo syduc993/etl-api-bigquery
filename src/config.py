@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     
     # Nhanh API Configuration
     nhanh_api_base_url: str = Field(
-        default="https://pos.open.nhanh.vn/v3.0",
+        default="https://pos.open.nhanh.vn",
         alias="NHANH_API_BASE_URL"
     )
     nhanh_rate_limit: int = Field(default=150, alias="NHANH_RATE_LIMIT")
@@ -85,7 +85,8 @@ def get_nhanh_credentials() -> dict:
     for key, secret_name in secret_names.items():
         try:
             response = client.access_secret_version(request={"name": secret_name})
-            credentials[key] = response.payload.data.decode("UTF-8")
+            # Strip whitespace and newlines from secret values
+            credentials[key] = response.payload.data.decode("UTF-8").strip()
         except Exception as e:
             raise ValueError(f"Failed to retrieve secret {key}: {str(e)}")
     

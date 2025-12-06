@@ -2,6 +2,7 @@
 REM Script to run ETL pipeline locally with date range
 
 set PYTHONPATH=%CD%
+set GOOGLE_APPLICATION_CREDENTIALS=%CD%\gcp-mcp\service-account-key.json
 set GCP_PROJECT=sync-nhanhvn-project
 set GCP_REGION=asia-southeast1
 set BRONZE_BUCKET=sync-nhanhvn-project-bronze
@@ -14,6 +15,7 @@ set LOG_LEVEL=INFO
 
 echo Running ETL pipeline locally...
 echo Date Range: 2025-12-01 to 2025-12-05
+echo Using service account: %GOOGLE_APPLICATION_CREDENTIALS%
 echo.
 
 python src/main.py --platform=nhanh --entity=all --from-date=2025-12-01 --to-date=2025-12-05

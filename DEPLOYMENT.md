@@ -65,6 +65,46 @@ Nếu cần deploy thủ công:
 gcloud builds submit --config cloudbuild.yaml
 ```
 
+### Chạy ETL Pipeline Local
+
+Để chạy ETL pipeline local và đưa data vào lakehouse:
+
+**Windows:**
+```cmd
+run-local-etl.bat
+```
+
+**Linux/Mac:**
+```bash
+bash run-local-etl.sh
+```
+
+**Hoặc chạy trực tiếp:**
+```bash
+# Set environment variables
+export PYTHONPATH=$(pwd)
+export GCP_PROJECT=sync-nhanhvn-project
+export GCP_REGION=asia-southeast1
+export BRONZE_BUCKET=sync-nhanhvn-project-bronze
+export SILVER_BUCKET=sync-nhanhvn-project-silver
+export BRONZE_DATASET=bronze
+export SILVER_DATASET=silver
+export GOLD_DATASET=gold
+export PARTITION_STRATEGY=month
+export LOG_LEVEL=INFO
+
+# Authenticate với GCP (chỉ cần làm 1 lần)
+gcloud auth application-default login
+
+# Chạy ETL với date range
+python src/main.py --platform=nhanh --entity=all --from-date=2025-12-01 --to-date=2025-12-05
+```
+
+**Lưu ý:** Cần có:
+- GCP credentials đã được setup (`gcloud auth application-default login`)
+- Nhanh API secrets đã được lưu trong GCP Secret Manager
+- Python dependencies đã được install (`pip install -r requirements.txt`)
+
 ### Running Jobs với Date Range (Qua gcloud CLI)
 
 Nếu muốn chạy trực tiếp từ terminal:

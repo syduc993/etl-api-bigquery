@@ -2,10 +2,10 @@
 -- File này định nghĩa schema cho BigQuery External Table
 -- pointing đến GCS JSON files của bills
 
-CREATE OR REPLACE EXTERNAL TABLE `sync-nhanhvn-project.bronze.bills_raw`
+CREATE OR REPLACE EXTERNAL TABLE `sync-nhanhvn-project.bronze.nhanh_bills_raw`
 OPTIONS (
   format = 'JSON',
-  uris = ['gs://sync-nhanhvn-project-bronze/bills/**/*.json.gz'],
+  uris = ['gs://sync-nhanhvn-project-bronze/nhanh/bills/**/*.json.gz'],
   compression = 'GZIP'
 );
 

@@ -400,4 +400,39 @@ class NhanhApiClient:
             current_start = current_end + timedelta(days=1)
         
         return chunks
+    
+    def split_date_range_by_day(
+        self,
+        from_date: datetime,
+        to_date: datetime
+    ) -> List[tuple]:
+        """
+        Chia date range thành từng ngày riêng biệt.
+        
+        Hàm này chia date range thành các chunks 1 ngày, mỗi ngày là một chunk.
+        Hữu ích khi muốn xử lý và lưu data theo từng ngày riêng biệt.
+        
+        Args:
+            from_date: Ngày bắt đầu
+            to_date: Ngày kết thúc
+            
+        Returns:
+            List[tuple]: Danh sách các (start_date, end_date) tuples, mỗi tuple là 1 ngày
+            
+        Example:
+            Nếu from_date = 2024-12-01, to_date = 2024-12-10
+            Sẽ trả về 10 chunks: [(2024-12-01, 2024-12-01), (2024-12-02, 2024-12-02), ...]
+        """
+        chunks = []
+        current_date = from_date.date()
+        end_date = to_date.date()
+        
+        while current_date <= end_date:
+            # Tạo datetime cho start và end của ngày (00:00:00 đến 23:59:59)
+            day_start = datetime.combine(current_date, datetime.min.time())
+            day_end = datetime.combine(current_date, datetime.max.time().replace(microsecond=0))
+            chunks.append((day_start, day_end))
+            current_date += timedelta(days=1)
+        
+        return chunks
 

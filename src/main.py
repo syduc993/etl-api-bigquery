@@ -6,12 +6,13 @@ Sử dụng registry pattern để dễ dàng mở rộng cho platforms và enti
 """
 import sys
 import argparse
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Optional
 from src.config import settings
 from src.extractors import registry, list_available_platforms, list_available_entities
 from src.loaders.gcs_loader import GCSLoader
 from src.loaders.watermark import WatermarkTracker
+from src.loaders.bigquery_setup import BigQueryExternalTableSetup
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -23,6 +24,8 @@ def extract_entity(
     loader: GCSLoader,
     watermark_tracker: WatermarkTracker,
     incremental: bool = True,
+    from_date: Optional[datetime] = None,
+    to_date: Optional[datetime] = None,
     **extractor_kwargs
 ):
     """
@@ -64,66 +67,294 @@ def extract_entity(
         raise ValueError(f"Failed to create extractor for {platform}.{entity}")
     
     # Get incremental range nếu cần (chỉ khi không có date range được chỉ định)
-    if incremental and "from_date" not in extractor_kwargs and "to_date" not in extractor_kwargs:
+    if incremental and not from_date and not to_date:
         watermark_key = f"{platform}_{entity}"
-        from_date, to_date = watermark_tracker.get_incremental_range(
+        incr_from, incr_to = watermark_tracker.get_incremental_range(
             watermark_key,
             lookback_hours=1
         )
-        extractor_kwargs["updated_at_from"] = from_date
-        extractor_kwargs["updated_at_to"] = to_date
-    # Don't pass incremental parameter to extractors - they don't need it
+        extractor_kwargs["updated_at_from"] = incr_from
+        extractor_kwargs["updated_at_to"] = incr_to
+    # Pass date range to extractor if provided
+    elif from_date and to_date:
+        extractor_kwargs["from_date"] = from_date
+        extractor_kwargs["to_date"] = to_date
     
-    # Extract data
-    try:
-        data = extractor.extract(**extractor_kwargs)
-    except Exception as e:
-        logger.error(
-            f"Error extracting {platform}.{entity}",
-            error=str(e),
-            platform=platform,
-            entity=entity
+    # Special handling for bills: extract with products separation
+    if platform == "nhanh" and entity == "bills" and hasattr(extractor, "extract_with_products"):
+        # Nếu có date range, xử lý từng ngày riêng biệt
+        if from_date and to_date:
+            # Chia date range thành từng ngày
+            from src.extractors.nhanh.base import NhanhApiClient
+            date_splitter = NhanhApiClient()
+            day_chunks = date_splitter.split_date_range_by_day(from_date, to_date)
+            
+            logger.info(
+                f"Processing {len(day_chunks)} days separately",
+                platform=platform,
+                entity=entity,
+                days=len(day_chunks)
+            )
+            
+            total_bills = 0
+            total_products = 0
+            
+            # Xử lý từng ngày
+            for day_idx, (day_from, day_to) in enumerate(day_chunks, 1):
+                day_date = day_from.date()
+                logger.info(
+                    f"Processing day {day_idx}/{len(day_chunks)}: {day_date}",
+                    day=day_idx,
+                    total_days=len(day_chunks),
+                    date=day_date.isoformat()
+                )
+                
+                # Extract data cho ngày này
+                day_kwargs = extractor_kwargs.copy()
+                day_kwargs["from_date"] = day_from
+                day_kwargs["to_date"] = day_to
+                day_kwargs["process_by_day"] = True
+                
+                try:
+                    bills_data, products_data = extractor.extract_with_products(**day_kwargs)
+                except Exception as e:
+                    logger.error(
+                        f"Error extracting {platform}.{entity} for day {day_date}",
+                        error=str(e),
+                        platform=platform,
+                        entity=entity,
+                        date=day_date.isoformat()
+                    )
+                    continue
+                
+                # Upload bills cho ngày này (parquet)
+                if bills_data:
+                    bills_path = f"{platform}/{entity}"
+                    bills_metadata = {
+                        "platform": platform,
+                        "entity": entity,
+                        "extraction_timestamp": datetime.utcnow().isoformat(),
+                        "record_count": len(bills_data),
+                        "incremental": incremental,
+                        "date": day_date.isoformat()
+                    }
+                    
+                    loader.upload_parquet_by_date(
+                        entity=bills_path,
+                        data=bills_data,
+                        partition_date=day_date,
+                        metadata=bills_metadata,
+                        overwrite_partition=True
+                    )
+                    
+                    total_bills += len(bills_data)
+                    
+                    logger.info(
+                        f"Uploaded bills for day {day_date}",
+                        date=day_date.isoformat(),
+                        records=len(bills_data)
+                    )
+                
+                # Upload products cho ngày này (parquet)
+                if products_data:
+                    products_path = f"{platform}/bill_products"
+                    products_metadata = {
+                        "platform": platform,
+                        "entity": "bill_products",
+                        "extraction_timestamp": datetime.utcnow().isoformat(),
+                        "record_count": len(products_data),
+                        "incremental": incremental,
+                        "date": day_date.isoformat()
+                    }
+                    
+                    loader.upload_parquet_by_date(
+                        entity=products_path,
+                        data=products_data,
+                        partition_date=day_date,
+                        metadata=products_metadata,
+                        overwrite_partition=True
+                    )
+                    
+                    total_products += len(products_data)
+                    
+                    logger.info(
+                        f"Uploaded products for day {day_date}",
+                        date=day_date.isoformat(),
+                        records=len(products_data)
+                    )
+            
+            # Update watermark sau khi xử lý tất cả các ngày
+            if total_bills > 0:
+                watermark_key = f"{platform}_{entity}"
+                watermark_tracker.update_watermark(
+                    entity=watermark_key,
+                    extracted_at=datetime.utcnow(),
+                    records_count=total_bills
+                )
+            
+            if total_products > 0:
+                watermark_key = f"{platform}_bill_products"
+                watermark_tracker.update_watermark(
+                    entity=watermark_key,
+                    extracted_at=datetime.utcnow(),
+                    records_count=total_products
+                )
+            
+            logger.info(
+                f"Completed extraction with products separation (by day)",
+                platform=platform,
+                entity=entity,
+                total_bills=total_bills,
+                total_products=total_products,
+                days_processed=len(day_chunks)
+            )
+        else:
+            # Không có date range, xử lý như cũ (incremental hoặc full sync)
+            try:
+                bills_data, products_data = extractor.extract_with_products(**extractor_kwargs)
+            except Exception as e:
+                logger.error(
+                    f"Error extracting {platform}.{entity} with products",
+                    error=str(e),
+                    platform=platform,
+                    entity=entity
+                )
+                raise
+            
+            if not bills_data and not products_data:
+                logger.info(
+                    f"No data to upload",
+                    platform=platform,
+                    entity=entity
+                )
+                return
+            
+            # Upload bills (parquet)
+            if bills_data:
+                bills_path = f"{platform}/{entity}"
+                bills_metadata = {
+                    "platform": platform,
+                    "entity": entity,
+                    "extraction_timestamp": datetime.utcnow().isoformat(),
+                    "record_count": len(bills_data),
+                    "incremental": incremental
+                }
+                
+                partition_date = None
+                if from_date:
+                    partition_date = from_date.date()
+                
+                loader.upload_parquet_by_date(
+                    entity=bills_path,
+                    data=bills_data,
+                    partition_date=partition_date,
+                    metadata=bills_metadata,
+                    overwrite_partition=True
+                )
+                
+                # Update watermark for bills
+                watermark_key = f"{platform}_{entity}"
+                watermark_tracker.update_watermark(
+                    entity=watermark_key,
+                    extracted_at=datetime.utcnow(),
+                    records_count=len(bills_data)
+                )
+            
+            # Upload products (parquet)
+            if products_data:
+                products_path = f"{platform}/bill_products"
+                products_metadata = {
+                    "platform": platform,
+                    "entity": "bill_products",
+                    "extraction_timestamp": datetime.utcnow().isoformat(),
+                    "record_count": len(products_data),
+                    "incremental": incremental
+                }
+                
+                partition_date = None
+                if from_date:
+                    partition_date = from_date.date()
+                
+                loader.upload_parquet_by_date(
+                    entity=products_path,
+                    data=products_data,
+                    partition_date=partition_date,
+                    metadata=products_metadata,
+                    overwrite_partition=True
+                )
+                
+                # Update watermark for bill_products
+                watermark_key = f"{platform}_bill_products"
+                watermark_tracker.update_watermark(
+                    entity=watermark_key,
+                    extracted_at=datetime.utcnow(),
+                    records_count=len(products_data)
+                )
+            
+            logger.info(
+                f"Completed extraction with products separation",
+                platform=platform,
+                entity=entity,
+                bills_count=len(bills_data) if bills_data else 0,
+                products_count=len(products_data) if products_data else 0
+            )
+    else:
+        # Standard extraction for other entities
+        try:
+            data = extractor.extract(**extractor_kwargs)
+        except Exception as e:
+            logger.error(
+                f"Error extracting {platform}.{entity}",
+                error=str(e),
+                platform=platform,
+                entity=entity
+            )
+            raise
+        
+        if not data:
+            logger.info(
+                f"No data to upload",
+                platform=platform,
+                entity=entity
+            )
+            return
+        
+        # Upload to GCS với platform prefix (parquet)
+        entity_path = f"{platform}/{entity}"
+        metadata = {
+            "platform": platform,
+            "entity": entity,
+            "extraction_timestamp": datetime.utcnow().isoformat(),
+            "record_count": len(data),
+            "incremental": incremental
+        }
+        
+        partition_date = None
+        if from_date:
+            partition_date = from_date.date()
+        
+        loader.upload_parquet_by_date(
+            entity=entity_path,
+            data=data,
+            partition_date=partition_date,
+            metadata=metadata,
+            overwrite_partition=True
         )
-        raise
-    
-    if not data:
+        
+        # Update watermark
+        watermark_key = f"{platform}_{entity}"
+        watermark_tracker.update_watermark(
+            entity=watermark_key,
+            extracted_at=datetime.utcnow(),
+            records_count=len(data)
+        )
+        
         logger.info(
-            f"No data to upload",
+            f"Completed extraction",
             platform=platform,
-            entity=entity
+            entity=entity,
+            records=len(data)
         )
-        return
-    
-    # Upload to GCS với platform prefix
-    entity_path = f"{platform}/{entity}"
-    metadata = {
-        "platform": platform,
-        "entity": entity,
-        "extraction_timestamp": datetime.utcnow().isoformat(),
-        "record_count": len(data),
-        "incremental": incremental
-    }
-    
-    loader.upload_json(
-        entity=entity_path,
-        data=data,
-        metadata=metadata
-    )
-    
-    # Update watermark
-    watermark_key = f"{platform}_{entity}"
-    watermark_tracker.update_watermark(
-        entity=watermark_key,
-        extracted_at=datetime.utcnow(),
-        records_count=len(data)
-    )
-    
-    logger.info(
-        f"Completed extraction",
-        platform=platform,
-        entity=entity,
-        records=len(data)
-    )
 
 
 def main():
@@ -165,6 +396,12 @@ def main():
         "--to-date",
         type=str,
         help="End date for extraction (format: YYYY-MM-DD). When provided, uses date range instead of incremental"
+    )
+    parser.add_argument(
+        "--batch-days",
+        type=int,
+        default=30,
+        help="Number of days to process in each batch (default: 30). Use smaller batches to avoid timeout, larger to reduce job count"
     )
     
     args = parser.parse_args()
@@ -236,20 +473,15 @@ def main():
                     entity=entity
                 )
                 
-                # Prepare extractor kwargs
-                extractor_kwargs = {}
-                # Only pass date range to extractors that support it (bills)
-                if from_date and to_date and entity == "bills":
-                    extractor_kwargs["from_date"] = from_date
-                    extractor_kwargs["to_date"] = to_date
-                
+                # Process entity (extractor will handle date range splitting internally if needed)
                 extract_entity(
                     platform=args.platform,
                     entity=entity,
                     loader=loader,
                     watermark_tracker=watermark_tracker,
                     incremental=incremental,
-                    **extractor_kwargs
+                    from_date=from_date,
+                    to_date=to_date
                 )
             
             except Exception as e:
@@ -263,6 +495,16 @@ def main():
                 continue
         
         logger.info("ETL pipeline completed successfully")
+        
+        # Auto-setup BigQuery External Tables
+        logger.info("Setting up BigQuery External Tables...")
+        try:
+            bq_setup = BigQueryExternalTableSetup()
+            bq_setup.setup_all_tables(platforms=[args.platform] if args.platform else None)
+            logger.info("BigQuery External Tables setup completed")
+        except Exception as e:
+            logger.warning(f"Failed to setup BigQuery External Tables", error=str(e))
+            # Don't fail the entire pipeline if table setup fails
     
     except Exception as e:
         logger.error(f"ETL pipeline failed", error=str(e))

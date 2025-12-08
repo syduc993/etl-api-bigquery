@@ -118,47 +118,117 @@ def run_bronze_extraction(
                     )
                     extractor_kwargs["updated_at_from"] = from_date
                     extractor_kwargs["updated_at_to"] = to_date
-                    extractor_kwargs["incremental"] = True
+                
+                # Special handling for bills: extract with products separation
+                if platform == "nhanh" and entity == "bills" and hasattr(extractor, "extract_with_products"):
+                    # Extract bills and products separately (don't pass incremental to extract_with_products)
+                    bills_data, products_data = extractor.extract_with_products(**extractor_kwargs)
+                    
+                    if not bills_data and not products_data:
+                        logger.info(
+                            f"No data to upload",
+                            platform=platform,
+                            entity=entity
+                        )
+                        results[platform][entity] = {"count": 0, "status": "no_data"}
+                        results[platform]["bill_products"] = {"count": 0, "status": "no_data"}
+                        continue
+                    
+                    # Upload bills
+                    if bills_data:
+                        bills_path = f"{platform}/{entity}"
+                        bills_metadata = {
+                            "platform": platform,
+                            "entity": entity,
+                            "extraction_timestamp": datetime.utcnow().isoformat(),
+                            "record_count": len(bills_data),
+                            "incremental": incremental
+                        }
+                        loader.upload_json(
+                            entity=bills_path,
+                            data=bills_data,
+                            metadata=bills_metadata
+                        )
+                        
+                        # Update watermark for bills
+                        watermark_key = f"{platform}_{entity}"
+                        watermark_tracker.update_watermark(
+                            entity=watermark_key,
+                            extracted_at=datetime.utcnow(),
+                            records_count=len(bills_data)
+                        )
+                    
+                    # Upload products
+                    if products_data:
+                        products_path = f"{platform}/bill_products"
+                        products_metadata = {
+                            "platform": platform,
+                            "entity": "bill_products",
+                            "extraction_timestamp": datetime.utcnow().isoformat(),
+                            "record_count": len(products_data),
+                            "incremental": incremental
+                        }
+                        loader.upload_json(
+                            entity=products_path,
+                            data=products_data,
+                            metadata=products_metadata
+                        )
+                        
+                        # Update watermark for bill_products
+                        watermark_key = f"{platform}_bill_products"
+                        watermark_tracker.update_watermark(
+                            entity=watermark_key,
+                            extracted_at=datetime.utcnow(),
+                            records_count=len(products_data)
+                        )
+                    
+                    # Store results for both entities
+                    results[platform][entity] = {
+                        "count": len(bills_data) if bills_data else 0,
+                        "status": "success"
+                    }
+                    results[platform]["bill_products"] = {
+                        "count": len(products_data) if products_data else 0,
+                        "status": "success"
+                    }
                 else:
-                    extractor_kwargs["incremental"] = False
-                
-                # Extract data
-                data = extractor.extract(**extractor_kwargs)
-                
-                if not data:
-                    logger.info(
-                        f"No data to upload",
-                        platform=platform,
-                        entity=entity
+                    # Standard extraction for other entities
+                    data = extractor.extract(**extractor_kwargs)
+                    
+                    if not data:
+                        logger.info(
+                            f"No data to upload",
+                            platform=platform,
+                            entity=entity
+                        )
+                        results[platform][entity] = {"count": 0, "status": "no_data"}
+                        continue
+                    
+                    # Upload to GCS với platform prefix
+                    entity_path = f"{platform}/{entity}"
+                    metadata = {
+                        "platform": platform,
+                        "entity": entity,
+                        "extraction_timestamp": datetime.utcnow().isoformat(),
+                        "record_count": len(data),
+                        "incremental": incremental
+                    }
+                    
+                    loader.upload_json(
+                        entity=entity_path,
+                        data=data,
+                        metadata=metadata
                     )
-                    results[platform][entity] = {"count": 0, "status": "no_data"}
-                    continue
-                
-                # Upload to GCS với platform prefix
-                entity_path = f"{platform}/{entity}"
-                metadata = {
-                    "platform": platform,
-                    "entity": entity,
-                    "extraction_timestamp": datetime.utcnow().isoformat(),
-                    "record_count": len(data),
-                    "incremental": incremental
-                }
-                
-                loader.upload_json(
-                    entity=entity_path,
-                    data=data,
-                    metadata=metadata
-                )
-                
-                # Update watermark
-                watermark_key = f"{platform}_{entity}"
-                watermark_tracker.update_watermark(
-                    entity=watermark_key,
-                    extracted_at=datetime.utcnow(),
-                    records_count=len(data)
-                )
-                
-                results[platform][entity] = {"count": len(data), "status": "success"}
+                    
+                    # Update watermark
+                    watermark_key = f"{platform}_{entity}"
+                    watermark_tracker.update_watermark(
+                        entity=watermark_key,
+                        extracted_at=datetime.utcnow(),
+                        records_count=len(data)
+                    )
+                    
+                    results[platform][entity] = {"count": len(data), "status": "success"}
                 
             except Exception as e:
                 logger.error(

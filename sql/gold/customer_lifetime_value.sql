@@ -3,7 +3,7 @@
 -- Bao gồm: tổng chi tiêu, số đơn hàng, đơn hàng cuối cùng, etc.
 
 CREATE OR REPLACE TABLE `sync-nhanhvn-project.gold.customer_lifetime_value`
-PARTITION BY DATE(first_order_date)
+PARTITION BY first_order_date
 CLUSTER BY customer_id
 AS
 WITH customer_orders AS (

@@ -4,7 +4,7 @@ File này quản lý việc track timestamp của lần extraction cuối cùng
 để hỗ trợ incremental extraction (chỉ lấy data mới).
 Watermark được lưu trong BigQuery table.
 """
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from google.cloud import bigquery
 from src.config import settings
@@ -95,7 +95,11 @@ class WatermarkTracker:
             
             row = next(results, None)
             if row:
-                return row.last_extracted_at
+                # Ensure timezone-aware datetime
+                watermark = row.last_extracted_at
+                if watermark and watermark.tzinfo is None:
+                    watermark = watermark.replace(tzinfo=timezone.utc)
+                return watermark
             return None
         
         except Exception as e:
@@ -119,7 +123,7 @@ class WatermarkTracker:
         Raises:
             WatermarkError: Nếu có lỗi khi update BigQuery
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         
         query = f"""
         MERGE `{settings.gcp_project}.{self.dataset_id}.{self.table_id}` AS target
@@ -183,9 +187,12 @@ class WatermarkTracker:
             tuple: (from_date, to_date) - from_date có thể là None nếu không có watermark
         """
         watermark = self.get_watermark(entity)
-        to_date = datetime.utcnow()
+        to_date = datetime.now(timezone.utc)
         
         if watermark:
+            # Ensure both are timezone-aware
+            if watermark.tzinfo is None:
+                watermark = watermark.replace(tzinfo=timezone.utc)
             from_date = watermark
             logger.info(
                 f"Using watermark for incremental extraction",

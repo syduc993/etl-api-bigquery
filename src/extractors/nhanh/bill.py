@@ -74,7 +74,8 @@ class BillExtractor(BaseExtractor, NhanhApiClient):
         bill_type: Optional[int] = None,
         customer_id: Optional[int] = None,
         updated_at_from: Optional[datetime] = None,
-        updated_at_to: Optional[datetime] = None
+        updated_at_to: Optional[datetime] = None,
+        process_by_day: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Lấy danh sách hóa đơn với xử lý giới hạn 31 ngày.
@@ -103,19 +104,28 @@ class BillExtractor(BaseExtractor, NhanhApiClient):
         # Determine date range
         if updated_at_from and updated_at_to:
             # Use updatedAt for incremental extraction
-            date_chunks = self.split_date_range(updated_at_from, updated_at_to)
+            if process_by_day:
+                date_chunks = self.split_date_range_by_day(updated_at_from, updated_at_to)
+            else:
+                date_chunks = self.split_date_range(updated_at_from, updated_at_to)
             date_field = "updatedAtFrom"
             date_to_field = "updatedAtTo"
         elif from_date and to_date:
             # Use fromDate/toDate for bill date filter
-            date_chunks = self.split_date_range(from_date, to_date)
+            if process_by_day:
+                date_chunks = self.split_date_range_by_day(from_date, to_date)
+            else:
+                date_chunks = self.split_date_range(from_date, to_date)
             date_field = "fromDate"
             date_to_field = "toDate"
         else:
             # Default: last 31 days
             to_date = datetime.now()
             from_date = to_date - timedelta(days=30)
-            date_chunks = [(from_date, to_date)]
+            if process_by_day:
+                date_chunks = self.split_date_range_by_day(from_date, to_date)
+            else:
+                date_chunks = [(from_date, to_date)]
             date_field = "fromDate"
             date_to_field = "toDate"
         
@@ -140,8 +150,15 @@ class BillExtractor(BaseExtractor, NhanhApiClient):
             filters: Dict[str, Any] = {}
             
             if date_field == "fromDate":
-                filters["fromDate"] = chunk_from.strftime("%Y-%m-%d")
-                filters["toDate"] = chunk_to.strftime("%Y-%m-%d")
+                # Nếu process_by_day, fromDate và toDate là cùng một ngày
+                if process_by_day:
+                    # Chỉ dùng ngày, không dùng time
+                    day_str = chunk_from.strftime("%Y-%m-%d")
+                    filters["fromDate"] = day_str
+                    filters["toDate"] = day_str
+                else:
+                    filters["fromDate"] = chunk_from.strftime("%Y-%m-%d")
+                    filters["toDate"] = chunk_to.strftime("%Y-%m-%d")
             else:
                 # updatedAt filters (if API supports them)
                 filters["updatedAtFrom"] = chunk_from.isoformat()
@@ -195,4 +212,91 @@ class BillExtractor(BaseExtractor, NhanhApiClient):
         )
         
         return all_bills
+    
+    def extract_with_products(
+        self,
+        from_date: Optional[datetime] = None,
+        to_date: Optional[datetime] = None,
+        modes: Optional[List[int]] = None,
+        bill_type: Optional[int] = None,
+        customer_id: Optional[int] = None,
+        updated_at_from: Optional[datetime] = None,
+        updated_at_to: Optional[datetime] = None,
+        process_by_day: bool = False
+    ) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
+        """
+        Lấy danh sách hóa đơn và tách products ra thành danh sách riêng.
+        
+        Hàm này tương tự fetch_bills nhưng tách products ra khỏi bills
+        và trả về 2 danh sách riêng biệt: bills (không có products) và products.
+        
+        Args:
+            from_date: Ngày bắt đầu cho filter bill date
+            to_date: Ngày kết thúc cho filter bill date
+            modes: Danh sách mode IDs
+            bill_type: Loại hóa đơn
+            customer_id: Lọc theo ID khách hàng
+            updated_at_from: Ngày bắt đầu cho filter updatedAt
+            updated_at_to: Ngày kết thúc cho filter updatedAt
+            
+        Returns:
+            tuple: (bills_list, products_list) - 2 danh sách riêng biệt
+        """
+        # Fetch bills như bình thường
+        all_bills = self.fetch_bills(
+            from_date=from_date,
+            to_date=to_date,
+            modes=modes,
+            bill_type=bill_type,
+            customer_id=customer_id,
+            updated_at_from=updated_at_from,
+            updated_at_to=updated_at_to,
+            process_by_day=process_by_day
+        )
+        
+        # Tách products ra khỏi bills
+        bills_without_products = []
+        all_products = []
+        
+        for bill in all_bills:
+            # Copy bill và remove products
+            bill_copy = bill.copy()
+            products_data = bill_copy.pop('products', [])
+            
+            # Thêm bill_id vào bill để dễ join sau này
+            bill_copy['bill_id'] = bill.get('id', f"bill_{len(bills_without_products)}")
+            bills_without_products.append(bill_copy)
+            
+            # Xử lý products
+            if products_data:
+                if isinstance(products_data, dict):
+                    # Trường hợp products là dict (key = product_id, value = product_data)
+                    for product_id, product_data in products_data.items():
+                        if isinstance(product_data, dict):
+                            product_record = product_data.copy()
+                        else:
+                            product_record = {'data': product_data}
+                        product_record['bill_id'] = bill_copy['bill_id']
+                        product_record['product_id'] = product_id
+                        all_products.append(product_record)
+                elif isinstance(products_data, list):
+                    # Trường hợp products là list
+                    for idx, product_data in enumerate(products_data):
+                        if isinstance(product_data, dict):
+                            product_record = product_data.copy()
+                        else:
+                            product_record = {'data': product_data}
+                        product_record['bill_id'] = bill_copy['bill_id']
+                        # Đảm bảo có product_id (dùng id từ product_data nếu có, không thì dùng index)
+                        if 'product_id' not in product_record:
+                            product_record['product_id'] = product_record.get('id', idx)
+                        all_products.append(product_record)
+        
+        logger.info(
+            f"Separated bills and products",
+            bills_count=len(bills_without_products),
+            products_count=len(all_products)
+        )
+        
+        return bills_without_products, all_products
 

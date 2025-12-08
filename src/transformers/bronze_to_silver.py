@@ -112,6 +112,13 @@ class BronzeToSilverTransformer:
         logger.info("Starting products transformation: Bronze → Silver")
         
         try:
+            # Check if source table exists
+            try:
+                self.client.get_table(f"{settings.gcp_project}.{self.bronze_dataset}.nhanh_products_raw")
+            except Exception:
+                logger.warning("Products bronze table not found, skipping transformation")
+                return {"products_count": 0, "status": "skipped", "reason": "source_table_not_found"}
+            
             # Load SQL script
             sql = self._load_sql_file("sql/silver/transform_products.sql")
             
@@ -156,6 +163,13 @@ class BronzeToSilverTransformer:
         logger.info("Starting customers transformation: Bronze → Silver")
         
         try:
+            # Check if source table exists
+            try:
+                self.client.get_table(f"{settings.gcp_project}.{self.bronze_dataset}.nhanh_customers_raw")
+            except Exception:
+                logger.warning("Customers bronze table not found, skipping transformation")
+                return {"customers_count": 0, "status": "skipped", "reason": "source_table_not_found"}
+            
             # Load SQL script
             sql = self._load_sql_file("sql/silver/transform_customers.sql")
             

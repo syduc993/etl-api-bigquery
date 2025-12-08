@@ -15,8 +15,8 @@ WITH raw_bills AS (
     *,
     -- Extract metadata từ file path nếu có
     _FILE_NAME as source_file
-  FROM `sync-nhanhvn-project.bronze.bills_raw`
-  WHERE _PARTITIONDATE >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
+  FROM `sync-nhanhvn-project.bronze.nhanh_bills_raw`
+  -- Parquet external tables don't support _PARTITIONTIME, will filter on date field after parsing
 ),
 deduplicated AS (
   SELECT
@@ -35,8 +35,14 @@ cleaned AS (
     CAST(depotId AS INT64) as depot_id,
     
     -- Dates
-    PARSE_DATE('%Y-%m-%d', date) as bill_date,
-    PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', created.createdAt) as created_at,
+    PARSE_DATE('%Y-%m-%d', CAST(date AS STRING)) as bill_date,
+    -- Handle created.createdAt: could be INT64 (timestamp) or STRING
+    CASE 
+      WHEN created.createdAt IS NULL THEN NULL
+      WHEN SAFE_CAST(created.createdAt AS INT64) IS NOT NULL 
+        THEN TIMESTAMP_SECONDS(SAFE_CAST(created.createdAt AS INT64))
+      ELSE PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', CAST(created.createdAt AS STRING))
+    END as created_at,
     
     -- Type and mode
     CAST(type AS INT64) as bill_type,  -- 1 = nhập kho, 2 = xuất kho
@@ -67,41 +73,36 @@ cleaned AS (
     AND id IS NOT NULL  -- Validate required fields
     AND date IS NOT NULL
     AND created.createdAt IS NOT NULL
+    -- Filter on actual date field (last 90 days)
+    AND PARSE_DATE('%Y-%m-%d', date) >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
 )
 SELECT * FROM cleaned;
 
--- Tạo bảng bill_products để flatten products array
+-- Tạo bảng bill_products từ bill_products_raw (đã tách riêng trong Bronze)
+-- Note: created_at sẽ được lấy từ bills table sau khi bills đã được tạo
 CREATE OR REPLACE TABLE `sync-nhanhvn-project.silver.bill_products`
 PARTITION BY DATE(created_at)
 CLUSTER BY bill_id, product_id
 AS
-WITH raw_bills AS (
-  SELECT
-    CAST(id AS INT64) as bill_id,
-    PARSE_TIMESTAMP('%Y-%m-%d %H:%M:%S', created.createdAt) as created_at,
-    products
-  FROM `sync-nhanhvn-project.bronze.bills_raw`
-  WHERE _PARTITIONDATE >= DATE_SUB(CURRENT_DATE(), INTERVAL 90 DAY)
-    AND id IS NOT NULL
-    AND products IS NOT NULL
-)
 SELECT
-  bill_id,
-  created_at,
-  CAST(p.imexId AS INT64) as imex_id,
-  CAST(p.id AS INT64) as product_id,
-  CAST(p.code AS STRING) as product_code,
-  CAST(p.name AS STRING) as product_name,
-  CAST(p.quantity AS FLOAT64) as quantity,
-  CAST(p.price AS FLOAT64) as unit_price,
-  CAST(p.discount AS FLOAT64) as discount_amount,
-  CAST(p.amount AS FLOAT64) as line_amount,
-  CAST(p.vat.percent AS INT64) as vat_percent,
-  CAST(p.vat.amount AS FLOAT64) as vat_amount,
+  CAST(bp.bill_id AS INT64) as bill_id,
+  COALESCE(b.created_at, CURRENT_TIMESTAMP()) as created_at,
+  CAST(bp.id AS INT64) as product_id,
+  CAST(bp.code AS STRING) as product_code,
+  CAST(bp.name AS STRING) as product_name,
+  CAST(bp.quantity AS FLOAT64) as quantity,
+  CAST(bp.price AS FLOAT64) as unit_price,
+  CAST(bp.discount AS FLOAT64) as discount_amount,
+  CAST(bp.amount AS FLOAT64) as line_amount,
+  CAST(bp.vat.percent AS INT64) as vat_percent,
+  CAST(bp.vat.amount AS FLOAT64) as vat_amount,
+  CAST(bp.imexId AS INT64) as imex_id,
   CURRENT_TIMESTAMP() as processed_at
-FROM raw_bills,
-UNNEST(products) as p
-WHERE p.id IS NOT NULL
-  AND p.quantity > 0  -- Validate quantity
-  AND p.price >= 0;    -- Validate price
+FROM `sync-nhanhvn-project.bronze.nhanh_bill_products_raw` bp
+LEFT JOIN `sync-nhanhvn-project.silver.bills` b
+  ON b.bill_id = CAST(bp.bill_id AS INT64)
+WHERE bp.bill_id IS NOT NULL
+  AND bp.id IS NOT NULL
+  AND bp.quantity > 0
+  AND bp.price >= 0;
 

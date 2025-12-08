@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     nhanh_rate_window: int = Field(default=30, alias="NHANH_RATE_WINDOW")
     nhanh_max_date_range_days: int = Field(default=31, alias="NHANH_MAX_DATE_RANGE_DAYS")
     
-    # Partitioning Strategy
+    # Partitioning Strategy (day or month)
     partition_strategy: str = Field(default="month", alias="PARTITION_STRATEGY")
     
     # Logging

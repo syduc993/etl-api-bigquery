@@ -18,16 +18,17 @@ class Settings(BaseSettings):
     
     # GCP Configuration
     gcp_project: str = Field(default="sync-nhanhvn-project", alias="GCP_PROJECT")
-    gcp_region: str = Field(default="us-central1", alias="GCP_REGION")
+    gcp_region: str = Field(default="asia-southeast1", alias="GCP_REGION")
     
     # GCS Buckets
-    bronze_bucket: str = Field(default="sync-nhanhvn-project-bronze", alias="BRONZE_BUCKET")
+    bronze_bucket: str = Field(default="sync-nhanhvn-project", alias="BRONZE_BUCKET")
     silver_bucket: str = Field(default="sync-nhanhvn-project-silver", alias="SILVER_BUCKET")
     
     # BigQuery Datasets
     bronze_dataset: str = Field(default="bronze", alias="BRONZE_DATASET")
     silver_dataset: str = Field(default="silver", alias="SILVER_DATASET")
     gold_dataset: str = Field(default="gold", alias="GOLD_DATASET")
+    target_dataset: str = Field(default="nhanhVN", alias="TARGET_DATASET")
     
     # Nhanh API Configuration
     nhanh_api_base_url: str = Field(

@@ -8,8 +8,8 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from google.cloud import bigquery
 from src.config import settings
-from src.utils.logging import get_logger
-from src.utils.exceptions import WatermarkError
+from src.shared.logging import get_logger
+from src.shared.exceptions import WatermarkError
 
 logger = get_logger(__name__)
 
@@ -29,12 +29,25 @@ class WatermarkTracker:
         """
         Khởi tạo watermark tracker.
         
-        Tự động tạo BigQuery table nếu chưa tồn tại.
+        Tự động tạo BigQuery dataset và table nếu chưa tồn tại.
         """
         self.client = bigquery.Client(project=settings.gcp_project)
         self.dataset_id = settings.bronze_dataset
         self.table_id = "extraction_watermarks"
+        self._ensure_dataset_exists()
         self._ensure_table()
+    
+    def _ensure_dataset_exists(self):
+        """Đảm bảo Bronze dataset tồn tại với location đúng."""
+        dataset_id = f"{settings.gcp_project}.{self.dataset_id}"
+        try:
+            self.client.get_dataset(dataset_id)
+        except Exception:
+            logger.info(f"Dataset {dataset_id} not found, creating in {settings.gcp_region}...")
+            dataset = bigquery.Dataset(dataset_id)
+            dataset.location = settings.gcp_region  # Set location to asia-southeast1
+            self.client.create_dataset(dataset, exists_ok=True)
+            logger.info(f"Created dataset {dataset_id} in {settings.gcp_region}")
     
     def _ensure_table(self):
         """

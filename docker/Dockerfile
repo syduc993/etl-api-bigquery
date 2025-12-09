@@ -19,6 +19,6 @@ COPY sql/ ./sql/
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONPATH=/app
 
-# Default command
-CMD ["python", "src/main.py", "--entity", "all"]
+# Default command - can be overridden by Cloud Run Jobs with --args
+CMD ["python", "src/features/nhanh/bills/daily_sync.py"]
 

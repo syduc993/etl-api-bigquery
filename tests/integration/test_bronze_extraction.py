@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from src.extractors.nhanh.bill import BillExtractor
 from src.extractors.nhanh.product import ProductExtractor
 from src.extractors.nhanh.customer import CustomerExtractor
-from src.loaders.gcs_loader import GCSLoader
+from src.shared.gcs import GCSLoader
 from src.loaders.watermark import WatermarkTracker
 from src.config import settings
 

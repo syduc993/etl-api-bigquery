@@ -73,14 +73,14 @@ pip install -r requirements.txt
 
 ### Basic Usage
 
-**Extract từ một platform và entity:**
+**Extract bills từ Nhanh (Incremental - mặc định):**
 ```bash
-python src/main.py --platform nhanh --entity bills
+python src/scripts/nhanh_bills.py
 ```
 
-**Extract tất cả entities của một platform:**
+**Extract bills với date range:**
 ```bash
-python src/main.py --platform nhanh --entity all
+python src/features/nhanh/bills/extract.py --from-date 2024-01-01 --to-date 2024-01-31
 ```
 
 **Extract từ nhiều platforms:**
@@ -108,18 +108,18 @@ python src/orchestrator.py --phase silver
 python src/orchestrator.py --phase gold
 ```
 
-**Full sync (không incremental):**
-```bash
-python src/main.py --platform nhanh --entity all --full-sync
-```
-
 ## Cấu trúc Project
 
 ```
 .
 ├── src/
 │   ├── config.py              # Quản lý cấu hình
-│   ├── main.py                 # Entry point cho Bronze extraction (multi-platform)
+│   ├── features/                # Feature-based modules
+│   │   └── nhanh/
+│   │       └── bills/
+│   │           ├── extract.py      # Extract bills từ Nhanh API
+│   │           ├── daily_sync.py   # Daily sync (extract + transform)
+│   │           └── run_transform.py # Transform từ Bronze → Fact
 │   ├── transform_silver.py     # Entry point cho Silver transformation
 │   ├── transform_gold.py       # Entry point cho Gold aggregation
 │   ├── orchestrator.py         # Orchestrator cho toàn bộ pipeline

@@ -10,8 +10,8 @@ from datetime import datetime, timedelta
 class TestGCSLoader:
     """Test suite cho GCSLoader."""
     
-    @patch('src.loaders.gcs_loader.storage')
-    @patch('src.loaders.gcs_loader.settings')
+    @patch('src.shared.gcs.loader.storage')
+    @patch('src.shared.gcs.loader.settings')
     def test_get_partition_path_month(self, mock_settings, mock_storage):
         """Test _get_partition_path với strategy='month'."""
         mock_settings.gcp_project = 'test-project'
@@ -20,7 +20,7 @@ class TestGCSLoader:
         mock_client = MagicMock()
         mock_storage.Client.return_value = mock_client
         
-        from src.loaders.gcs_loader import GCSLoader
+        from src.shared.gcs import GCSLoader
         
         loader = GCSLoader(bucket_name='test-bucket')
         
@@ -29,8 +29,8 @@ class TestGCSLoader:
         
         assert path == 'bills/year=2024/month=03/'
     
-    @patch('src.loaders.gcs_loader.storage')
-    @patch('src.loaders.gcs_loader.settings')
+    @patch('src.shared.gcs.loader.storage')
+    @patch('src.shared.gcs.loader.settings')
     def test_get_partition_path_day(self, mock_settings, mock_storage):
         """Test _get_partition_path với strategy='day'."""
         mock_settings.gcp_project = 'test-project'
@@ -39,7 +39,7 @@ class TestGCSLoader:
         mock_client = MagicMock()
         mock_storage.Client.return_value = mock_client
         
-        from src.loaders.gcs_loader import GCSLoader
+        from src.shared.gcs import GCSLoader
         
         loader = GCSLoader(bucket_name='test-bucket')
         
@@ -48,8 +48,8 @@ class TestGCSLoader:
         
         assert path == 'bills/year=2024/month=03/day=15/'
     
-    @patch('src.loaders.gcs_loader.storage')
-    @patch('src.loaders.gcs_loader.settings')
+    @patch('src.shared.gcs.loader.storage')
+    @patch('src.shared.gcs.loader.settings')
     def test_upload_json_empty_data(self, mock_settings, mock_storage):
         """Test upload_json với empty data trả về empty string."""
         mock_settings.gcp_project = 'test-project'
@@ -58,7 +58,7 @@ class TestGCSLoader:
         mock_client = MagicMock()
         mock_storage.Client.return_value = mock_client
         
-        from src.loaders.gcs_loader import GCSLoader
+        from src.shared.gcs import GCSLoader
         
         loader = GCSLoader(bucket_name='test-bucket')
         
@@ -66,8 +66,8 @@ class TestGCSLoader:
         
         assert result == ''
     
-    @patch('src.loaders.gcs_loader.storage')
-    @patch('src.loaders.gcs_loader.settings')
+    @patch('src.shared.gcs.loader.storage')
+    @patch('src.shared.gcs.loader.settings')
     def test_upload_json_success(self, mock_settings, mock_storage):
         """Test upload_json với data thành công."""
         mock_settings.gcp_project = 'test-project'
@@ -83,7 +83,7 @@ class TestGCSLoader:
         mock_client.bucket.return_value = mock_bucket
         mock_storage.Client.return_value = mock_client
         
-        from src.loaders.gcs_loader import GCSLoader
+        from src.shared.gcs import GCSLoader
         
         loader = GCSLoader(bucket_name='test-bucket')
         
@@ -94,8 +94,8 @@ class TestGCSLoader:
         assert 'bills/' in result
         mock_blob.upload_from_string.assert_called_once()
     
-    @patch('src.loaders.gcs_loader.storage')
-    @patch('src.loaders.gcs_loader.settings')
+    @patch('src.shared.gcs.loader.storage')
+    @patch('src.shared.gcs.loader.settings')
     def test_upload_json_file_exists(self, mock_settings, mock_storage):
         """Test upload_json khi file đã tồn tại (idempotent)."""
         mock_settings.gcp_project = 'test-project'
@@ -111,7 +111,7 @@ class TestGCSLoader:
         mock_client.bucket.return_value = mock_bucket
         mock_storage.Client.return_value = mock_client
         
-        from src.loaders.gcs_loader import GCSLoader
+        from src.shared.gcs import GCSLoader
         
         loader = GCSLoader(bucket_name='test-bucket')
         

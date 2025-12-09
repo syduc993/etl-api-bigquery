@@ -5,7 +5,7 @@ File này tạo/cập nhật External Tables pointing đến GCS files.
 from typing import List, Optional
 from google.cloud import bigquery
 from src.config import settings
-from src.utils.logging import get_logger
+from src.shared.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -20,6 +20,19 @@ class BigQueryExternalTableSetup:
         self.client = bigquery.Client(project=settings.gcp_project)
         self.bronze_dataset = settings.bronze_dataset
         self.bronze_bucket = settings.bronze_bucket
+        self._ensure_dataset_exists()
+
+    def _ensure_dataset_exists(self):
+        """Ensure the Bronze dataset exists."""
+        dataset_id = f"{settings.gcp_project}.{self.bronze_dataset}"
+        try:
+            self.client.get_dataset(dataset_id)
+        except Exception:
+            logger.info(f"Dataset {dataset_id} not found, creating...")
+            dataset = bigquery.Dataset(dataset_id)
+            dataset.location = settings.gcp_region
+            self.client.create_dataset(dataset, exists_ok=True)
+            logger.info(f"Created dataset {dataset_id}")
     
     def setup_external_table(
         self,
@@ -42,11 +55,8 @@ class BigQueryExternalTableSetup:
             table_name = f"{platform}_{entity}_raw"
         
         table_id = f"{settings.gcp_project}.{self.bronze_dataset}.{table_name}"
-        # BigQuery doesn't support **, use single * instead
-        # Use parquet format instead of JSON.gz
         gcs_uri = f"gs://{self.bronze_bucket}/{platform}/{entity}/*.parquet"
         
-        # Use SQL to create external table with Parquet format
         sql = f"""
         CREATE OR REPLACE EXTERNAL TABLE `{table_id}`
         OPTIONS (
@@ -57,7 +67,7 @@ class BigQueryExternalTableSetup:
         
         try:
             query_job = self.client.query(sql)
-            query_job.result()  # Wait for completion
+            query_job.result()
             
             logger.info(
                 f"External table created/updated",
@@ -107,4 +117,3 @@ class BigQueryExternalTableSetup:
                     continue
         
         logger.info("Completed setting up all external tables")
-

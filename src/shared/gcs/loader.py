@@ -16,7 +16,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 from io import BytesIO
 from src.config import settings
-from src.utils.logging import get_logger
+from src.shared.logging import get_logger
 
 logger = get_logger(__name__)
 
@@ -45,6 +45,18 @@ class GCSLoader:
         self.bucket_name = bucket_name
         self.storage_client = storage.Client(project=settings.gcp_project)
         self.bucket = self.storage_client.bucket(bucket_name)
+        self._ensure_bucket_exists()
+
+    def _ensure_bucket_exists(self):
+        """Ensure the GCS bucket exists."""
+        try:
+            if not self.bucket.exists():
+                logger.info(f"Bucket {self.bucket_name} not found, creating...")
+                self.bucket.create(location=settings.gcp_region)
+                logger.info(f"Created bucket {self.bucket_name}")
+        except Exception as e:
+            # If we don't have permission to list/create, we just log and try to proceed
+            logger.warning(f"Could not verify/create bucket {self.bucket_name}: {e}")
     
     def _get_partition_path(
         self,
@@ -124,8 +136,6 @@ class GCSLoader:
             return full_path
         
         # Prepare JSON content
-        # For BigQuery compatibility, use newline-delimited JSON (NDJSON)
-        # Each line is a separate JSON object
         json_lines = [json.dumps(record, ensure_ascii=False, default=str) for record in data]
         json_content = '\n'.join(json_lines)
         
@@ -168,29 +178,22 @@ class GCSLoader:
         Xóa file có extension cụ thể trong partition path.
         
         Args:
-            partition_path: Partition path prefix (ví dụ: 'bills/year=2025/month=12/')
-            file_extension: Extension của file cần xóa (mặc định: '.parquet')
+            partition_path: Partition path prefix
+            file_extension: Extension của file cần xóa
             date_filter: Nếu có, chỉ xóa file có chứa date này trong filename
-                         (ví dụ: date_filter=2025-12-01 sẽ chỉ xóa file có 'data_2025-12-01_' trong tên)
-                         Nếu None, xóa tất cả file trong partition
             
         Returns:
             int: Số lượng file đã xóa
         """
         deleted_count = 0
-        
-        # List all blobs in partition path
         blobs = self.bucket.list_blobs(prefix=partition_path)
         
-        # Build date filter pattern if provided
         date_pattern = None
         if date_filter:
             date_pattern = f"data_{date_filter.isoformat()}_"
         
         for blob in blobs:
-            # Only delete files with matching extension (skip folders and metadata)
             if blob.name.endswith(file_extension) and not blob.name.endswith('/'):
-                # If date_filter is provided, only delete files matching that date
                 if date_pattern and date_pattern not in blob.name:
                     continue
                 
@@ -200,24 +203,20 @@ class GCSLoader:
                     logger.debug(
                         f"Deleted existing file in partition",
                         path=blob.name,
-                        partition=partition_path,
-                        date_filter=date_filter.isoformat() if date_filter else None
+                        partition=partition_path
                     )
                 except Exception as e:
                     logger.warning(
                         f"Failed to delete file in partition",
                         path=blob.name,
-                        error=str(e),
-                        partition=partition_path
+                        error=str(e)
                     )
         
         if deleted_count > 0:
             logger.info(
                 f"Deleted {deleted_count} existing file(s) in partition",
                 deleted_count=deleted_count,
-                partition=partition_path,
-                extension=file_extension,
-                date_filter=date_filter.isoformat() if date_filter else "all files"
+                partition=partition_path
             )
         
         return deleted_count
@@ -228,14 +227,7 @@ class GCSLoader:
         timestamp_str: str,
         metadata: Dict[str, Any]
     ):
-        """
-        Upload metadata file.
-        
-        Args:
-            partition_path: Partition path prefix
-            timestamp_str: Timestamp string cho filename
-            metadata: Metadata dictionary
-        """
+        """Upload metadata file."""
         metadata_path = f"{partition_path}_metadata/{timestamp_str}.json"
         metadata_blob = self.bucket.blob(metadata_path)
         
@@ -247,50 +239,6 @@ class GCSLoader:
         
         logger.debug(f"Uploaded metadata", path=metadata_path)
     
-    def upload_batch(
-        self,
-        entity: str,
-        data_batches: List[List[Dict[str, Any]]],
-        metadata: Optional[Dict[str, Any]] = None
-    ) -> List[str]:
-        """
-        Upload nhiều batches của data.
-        
-        Args:
-            entity: Tên entity
-            data_batches: Danh sách các batches của data
-            metadata: Metadata tùy chọn (chỉ upload 1 lần cho batch đầu tiên)
-            
-        Returns:
-            List[str]: Danh sách các file paths đã upload
-        """
-        uploaded_paths = []
-        
-        for batch_idx, batch_data in enumerate(data_batches, 1):
-            logger.info(
-                f"Uploading batch {batch_idx}/{len(data_batches)}",
-                batch=batch_idx,
-                total_batches=len(data_batches),
-                records=len(batch_data)
-            )
-            
-            path = self.upload_json(
-                entity=entity,
-                data=batch_data,
-                metadata=metadata if batch_idx == 1 else None  # Only upload metadata once
-            )
-            
-            if path:
-                uploaded_paths.append(path)
-        
-        logger.info(
-            f"Completed batch upload: {len(uploaded_paths)} files",
-            total_files=len(uploaded_paths),
-            entity=entity
-        )
-        
-        return uploaded_paths
-    
     def upload_parquet(
         self,
         entity: str,
@@ -300,59 +248,45 @@ class GCSLoader:
         overwrite_partition: bool = True
     ) -> str:
         """
-        Upload data dưới dạng Parquet lên GCS với partitioning theo config.
+        Upload data dưới dạng Parquet lên GCS với partitioning.
         
         Args:
-            entity: Tên entity (ví dụ: 'bills', 'products', 'customers')
+            entity: Tên entity
             data: Danh sách records để upload
             partition_date: Ngày để partition (mặc định: hôm nay)
             metadata: Metadata tùy chọn
-            overwrite_partition: Nếu True, xóa tất cả file parquet cũ trong partition trước khi upload
+            overwrite_partition: Nếu True, xóa file cũ trước khi upload
             
         Returns:
-            str: GCS path của file đã upload (rỗng nếu không có data)
+            str: GCS path của file đã upload
         """
         if not data:
             logger.warning(f"No data to upload for {entity}", entity=entity)
             return ""
         
-        # Use partition_date or current date
         if partition_date is None:
             partition_date = datetime.utcnow().date()
         
-        # Convert date to datetime for _get_partition_path (uses datetime at midnight)
         partition_datetime = datetime.combine(partition_date, datetime.min.time())
-        
-        # Create partition path using configured strategy (month or day)
         partition_path = self._get_partition_path(entity, partition_datetime)
         
-        # If overwrite_partition, delete existing parquet files
-        # - If month-level partitioning: only delete files for this specific date (from filename)
-        # - If day-level partitioning: delete all files in the day partition
         if overwrite_partition:
-            # Always pass date_filter to only delete files matching this date
-            # This ensures month-level partitioning doesn't delete other days' files
             self._delete_partition_files(
                 partition_path, 
                 file_extension=".parquet",
                 date_filter=partition_date
             )
         
-        # Generate filename with date
         timestamp_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S_%f")
         filename = f"data_{partition_date.isoformat()}_{timestamp_str}.parquet"
         full_path = f"{partition_path}{filename}"
         
-        # Convert to DataFrame
         df = pd.DataFrame(data)
-        
-        # Convert DataFrame to Parquet
         parquet_buffer = BytesIO()
         table = pa.Table.from_pandas(df)
         pq.write_table(table, parquet_buffer, compression='snappy')
         parquet_bytes = parquet_buffer.getvalue()
         
-        # Upload to GCS
         blob = self.bucket.blob(full_path)
         blob.upload_from_string(
             parquet_bytes,
@@ -368,7 +302,6 @@ class GCSLoader:
             size_bytes=len(parquet_bytes)
         )
         
-        # Upload metadata if provided
         if metadata:
             self._upload_metadata(partition_path, timestamp_str, metadata)
         
@@ -385,15 +318,14 @@ class GCSLoader:
     ) -> str:
         """
         Upload data dưới dạng Parquet, group theo ngày từ date_field.
-        Nếu partition_date được cung cấp, dùng nó thay vì parse từ data.
         
         Args:
             entity: Tên entity
             data: Danh sách records
-            partition_date: Ngày để partition (nếu None, sẽ parse từ date_field)
-            date_field: Tên field chứa date để group (mặc định: "date")
+            partition_date: Ngày để partition (nếu None, parse từ date_field)
+            date_field: Tên field chứa date
             metadata: Metadata tùy chọn
-            overwrite_partition: Nếu True, xóa tất cả file parquet cũ trong partition trước khi upload
+            overwrite_partition: Nếu True, xóa file cũ
             
         Returns:
             str: GCS path của file đã upload
@@ -402,14 +334,11 @@ class GCSLoader:
             logger.warning(f"No data to upload for {entity}", entity=entity)
             return ""
         
-        # Determine partition date
         if partition_date is None:
-            # Try to extract date from first record
             if date_field in data[0] and data[0][date_field]:
                 try:
                     date_str = data[0][date_field]
                     if isinstance(date_str, str):
-                        # Try ISO format first
                         if 'T' in date_str:
                             partition_date = datetime.fromisoformat(date_str.replace('Z', '+00:00')).date()
                         else:
@@ -420,20 +349,16 @@ class GCSLoader:
                     logger.warning(
                         f"Could not parse date from {date_field}, using today",
                         field=date_field,
-                        value=data[0].get(date_field),
                         error=str(e)
                     )
                     partition_date = datetime.utcnow().date()
             else:
                 partition_date = datetime.utcnow().date()
         
-        # Upload as single Parquet file for this date
-        path = self.upload_parquet(
+        return self.upload_parquet(
             entity=entity,
             data=data,
             partition_date=partition_date,
             metadata=metadata,
             overwrite_partition=overwrite_partition
         )
-        
-        return path

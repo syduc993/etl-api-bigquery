@@ -1,4 +1,4 @@
-name: Daily Bills Sync - 1AM VN Time
+name: daily_bills_sync
 
 on:
   schedule:
@@ -13,7 +13,7 @@ env:
   PYTHON_VERSION: '3.11'
 
 jobs:
-  daily-sync:
+  daily_bills_sync:
     permissions:
       contents: read
       id-token: write

@@ -4,6 +4,7 @@ Script này chạy incremental extraction và transform vào fact tables.
 """
 import sys
 import os
+from datetime import datetime, timedelta, timezone
 
 # Add project root to path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))))
@@ -25,6 +26,18 @@ def main():
         logger.info("Starting Daily Bills Sync Pipeline")
         logger.info("=" * 60)
         
+        # Calculate Yesterday (VN Time)
+        # Helper to ensure we get the correct "n-1" day regardless of where this script runs (UTC or otherwise)
+        # VN is UTC+7
+        vn_tz = timezone(timedelta(hours=7))
+        now_vn = datetime.now(vn_tz)
+        yesterday_vn = now_vn.date() - timedelta(days=1)
+        
+        from_date = datetime.combine(yesterday_vn, datetime.min.time()).replace(tzinfo=vn_tz)
+        to_date = datetime.combine(yesterday_vn, datetime.max.time()).replace(tzinfo=vn_tz)
+        
+        logger.info(f"Target Date (n-1): {yesterday_vn}")
+
         # Step 1: Extract từ Nhanh API → GCS (Bronze)
         logger.info("Step 1: Extracting bills from Nhanh API...")
         loader = GCSLoader(bucket_name=settings.bronze_bucket)
@@ -35,9 +48,9 @@ def main():
             entity="bills",
             loader=loader,
             watermark_tracker=watermark_tracker,
-            incremental=True,  # Incremental extraction
-            from_date=None,
-            to_date=None
+            incremental=False,  # Force specific date range
+            from_date=from_date,
+            to_date=to_date
         )
         
         logger.info("✅ Step 1 completed: Data extracted to GCS")

@@ -1,4 +1,4 @@
-name: Run ETL Job with Date Range
+name: manual_bills_sync
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ env:
   REGION: asia-southeast1
 
 jobs:
-  run-job:
+  manual_bills_sync:
     permissions:
       contents: read
       id-token: write

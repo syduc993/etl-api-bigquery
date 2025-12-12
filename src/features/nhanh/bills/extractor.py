@@ -229,6 +229,45 @@ class BillExtractor:
                         product_record['bill_id'] = bill_copy['bill_id']
                         if 'product_id' not in product_record:
                             product_record['product_id'] = product_record.get('id', idx)
+                        
+                        # Enforce types to avoid Parquet schema mismatch (INT64 vs DOUBLE)
+                        # BigQuery expects DOUBLE for these fields
+                        try:
+                            if 'discount' in product_record and product_record['discount'] is not None:
+                                product_record['discount'] = float(product_record['discount'])
+                            
+                            if 'quantity' in product_record and product_record['quantity'] is not None:
+                                product_record['quantity'] = float(product_record['quantity'])
+                                
+                            if 'price' in product_record and product_record['price'] is not None:
+                                product_record['price'] = float(product_record['price'])
+                            
+                            if 'vat' in product_record and isinstance(product_record['vat'], dict):
+                                if 'amount' in product_record['vat'] and product_record['vat']['amount'] is not None:
+                                    # Wait, the structure is vat.amount. 
+                                    # The original code just leaves it as is.
+                                    pass
+                                
+                            # Flatten/Normalize VAT (if needed, but here we just ensure types in place if it's used later)
+                            # Actually, looking at query_flatten.sql:
+                            # 78:     vat.percent AS vat_percent,
+                            # 79:     vat.amount AS vat_amount,
+                            # So we should probably allow the dict to stay, but ensure values inside are typed.
+                            if 'vat' in product_record and isinstance(product_record['vat'], dict):
+                                if 'amount' in product_record['vat'] and product_record['vat']['amount'] is not None:
+                                     product_record['vat']['amount'] = float(product_record['vat']['amount'])
+                                if 'percent' in product_record['vat'] and product_record['vat']['percent'] is not None:
+                                     product_record['vat']['percent'] = int(product_record['vat']['percent'])
+
+                            if 'amount' in product_record and product_record['amount'] is not None:
+                                product_record['amount'] = float(product_record['amount'])
+
+                        except (ValueError, TypeError) as e:
+                            # Log warning but keep going with original value? Or set to 0? 
+                            # Safe to keep original, but logging helps.
+                            # logger.warning(f"Failed to cast product fields: {e}")
+                            pass
+
                         all_products.append(product_record)
         
         logger.info(

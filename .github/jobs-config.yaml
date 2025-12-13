@@ -1,0 +1,130 @@
+# Cloud Run Jobs Configuration
+# Centralized configuration for all ETL jobs with labels for organization
+# Naming convention: etl-api-bigquery-{feature}-{type}-{name}
+
+project_id: "sync-nhanhvn-project"
+default_region: "asia-southeast1"
+default_service_account: "${PROJECT_ID}@appspot.gserviceaccount.com"
+default_image: "gcr.io/${PROJECT_ID}/nhanh-etl"
+
+jobs:
+  # ============================================
+  # NHANH BILLS FEATURE
+  # ============================================
+  - name: "etl-api-bigquery-nhanh-bills-daily-sync"
+    feature: "nhanh-bills"
+    type: "sync"
+    description: "Daily sync bills from Nhanh API → GCS → Transform to fact tables"
+    region: "asia-southeast1"
+    command: "python"
+    args: "src/features/nhanh/bills/daily_sync.py"
+    resources:
+      memory: "2Gi"
+      cpu: "2"
+    config:
+      max_retries: 2
+      task_timeout: 3600  # 1 hour
+    env_vars:
+      GCP_PROJECT: "${PROJECT_ID}"
+      GCP_REGION: "asia-southeast1"
+      BRONZE_BUCKET: "${PROJECT_ID}"
+      BRONZE_DATASET: "bronze"
+      TARGET_DATASET: "nhanhVN"
+      LOG_LEVEL: "INFO"
+    secrets:
+      NHANH_APP_ID: "nhanh-app-id:latest"
+      NHANH_BUSINESS_ID: "nhanh-business-id:latest"
+      NHANH_ACCESS_TOKEN: "nhanh-access-token:latest"
+    schedule:
+      cron: "0 1 * * *"  # Daily at 1:00 AM VN time
+      timezone: "Asia/Ho_Chi_Minh"
+    labels:
+      project: "etl-api-bigquery"
+      feature: "nhanh-bills"
+      type: "sync"
+      environment: "production"
+      layer: "bronze-to-fact"
+    old_name: "nhanh-bills-daily-sync"  # For migration reference
+
+  - name: "etl-api-bigquery-nhanh-bills-transform"
+    feature: "nhanh-bills"
+    type: "transform"
+    description: "Transform bills from bronze external tables to fact tables (triggered by GCS events)"
+    region: "asia-southeast1"
+    command: "python"
+    args: "src/features/nhanh/bills/transform_trigger.py"
+    resources:
+      memory: "2Gi"
+      cpu: "2"
+    config:
+      max_retries: 2
+      task_timeout: 1800  # 30 minutes
+    env_vars:
+      GCP_PROJECT: "${PROJECT_ID}"
+      GCP_REGION: "asia-southeast1"
+      BRONZE_BUCKET: "${PROJECT_ID}"
+      BRONZE_DATASET: "bronze"
+      TARGET_DATASET: "nhanhVN"
+      LOG_LEVEL: "INFO"
+    secrets: {}
+    schedule: null  # Triggered by GCS events, not scheduled
+    labels:
+      project: "etl-api-bigquery"
+      feature: "nhanh-bills"
+      type: "transform"
+      environment: "production"
+      layer: "bronze-to-fact"
+      trigger: "event-driven"
+    old_name: "nhanh-bills-transform-job"  # For migration reference
+
+  # ============================================
+  # ONEOFFICE FEATURE
+  # ============================================
+  - name: "etl-api-bigquery-oneoffice-daily-sync"
+    feature: "oneoffice"
+    type: "sync"
+    description: "Daily sync personnel data from 1Office API → BigQuery snapshot"
+    region: "asia-southeast1"
+    command: "python"
+    args: "src/features/one_office/daily_sync.py"
+    resources:
+      memory: "2Gi"
+      cpu: "2"
+    config:
+      max_retries: 2
+      task_timeout: 1800  # 30 minutes
+    env_vars:
+      GCP_PROJECT: "${PROJECT_ID}"
+      GCP_REGION: "asia-southeast1"
+      BRONZE_DATASET: "bronze"
+      ONEOFFICE_BASE_URL: "https://minham.1office.vn/api"
+      LOG_LEVEL: "INFO"
+    secrets:
+      ONEOFFICE_ACCESS_TOKEN: "oneoffice-access-token:latest"
+    schedule:
+      cron: "0 1 * * *"  # Daily at 1:00 AM VN time
+      timezone: "Asia/Ho_Chi_Minh"
+    labels:
+      project: "etl-api-bigquery"
+      feature: "oneoffice"
+      type: "sync"
+      environment: "production"
+      layer: "api-to-bronze"
+    old_name: "oneoffice-daily-sync-job"  # For migration reference
+
+  # ============================================
+  # LEGACY JOBS (to be migrated/deprecated)
+  # ============================================
+  - name: "nhanh-etl-job"
+    feature: "nhanh-legacy"
+    type: "legacy"
+    description: "Legacy job - to be deprecated"
+    region: "us-central1"
+    deprecated: true
+    labels:
+      project: "etl-api-bigquery"
+      feature: "nhanh-legacy"
+      type: "legacy"
+      environment: "production"
+      status: "deprecated"
+

@@ -1,0 +1,178 @@
+name: Deploy Cloud Run Jobs
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/jobs-config.yaml'
+      - 'src/features/**'
+      - 'docker/Dockerfile'
+      - 'requirements.txt'
+  workflow_dispatch:
+    inputs:
+      deploy_all:
+        description: 'Deploy all jobs (ignore changed detection)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  PROJECT_ID: sync-nhanhvn-project
+  REGION: asia-southeast1
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      jobs_to_deploy: ${{ steps.changes.outputs.jobs }}
+      deploy_all: ${{ github.event.inputs.deploy_all == 'true' }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Detect changed jobs
+        id: changes
+        run: |
+          if [ "${{ github.event.inputs.deploy_all }}" == "true" ]; then
+            echo "Deploying all jobs (manual trigger with deploy_all=true)"
+            echo "jobs=all" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check if jobs-config.yaml changed
+          if git diff --name-only HEAD~1 HEAD | grep -q "^\.github/jobs-config\.yaml$"; then
+            echo "jobs-config.yaml changed, deploying all jobs"
+            echo "jobs=all" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Check for changes in feature directories
+          CHANGED_FEATURES=$(git diff --name-only HEAD~1 HEAD | grep "^src/features/" | cut -d'/' -f3 | sort -u || true)
+          
+          if [ -z "$CHANGED_FEATURES" ]; then
+            echo "No feature changes detected"
+            echo "jobs=none" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          echo "Changed features: $CHANGED_FEATURES"
+          
+          # Map features to job names
+          JOBS_TO_DEPLOY=""
+          for feature in $CHANGED_FEATURES; do
+            case $feature in
+              nhanh)
+                JOBS_TO_DEPLOY="${JOBS_TO_DEPLOY} etl-api-bigquery-nhanh-bills-daily-sync etl-api-bigquery-nhanh-bills-transform"
+                ;;
+              one_office|oneoffice)
+                JOBS_TO_DEPLOY="${JOBS_TO_DEPLOY} etl-api-bigquery-oneoffice-daily-sync"
+                ;;
+            esac
+          done
+
+          # Also check if Dockerfile or requirements.txt changed
+          if git diff --name-only HEAD~1 HEAD | grep -qE "^(docker/Dockerfile|requirements\.txt)$"; then
+            echo "Dockerfile or requirements.txt changed, deploying all jobs"
+            echo "jobs=all" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          if [ -z "$JOBS_TO_DEPLOY" ]; then
+            echo "No jobs to deploy"
+            echo "jobs=none" >> $GITHUB_OUTPUT
+          else
+            echo "Jobs to deploy: $JOBS_TO_DEPLOY"
+            echo "jobs=$(echo $JOBS_TO_DEPLOY | tr ' ' ',')" >> $GITHUB_OUTPUT
+          fi
+
+  build-image:
+    runs-on: ubuntu-latest
+    needs: detect-changes
+    if: needs.detect-changes.outputs.jobs_to_deploy != 'none'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and push Docker image
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          IMAGE_NAME="gcr.io/${{ env.PROJECT_ID }}/nhanh-etl"
+          
+          echo "Building Docker image..."
+          gcloud builds submit \
+            --tag ${IMAGE_NAME}:${SHORT_SHA} \
+            --tag ${IMAGE_NAME}:latest \
+            --project=${{ env.PROJECT_ID }}
+          
+          echo "IMAGE_SHA=${SHORT_SHA}" >> $GITHUB_ENV
+          echo "IMAGE_NAME=${IMAGE_NAME}" >> $GITHUB_ENV
+
+  prepare-deploy:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-image]
+    if: needs.detect-changes.outputs.jobs_to_deploy != 'none'
+    outputs:
+      jobs_json: ${{ steps.prepare.outputs.jobs_json }}
+    steps:
+      - name: Prepare jobs list
+        id: prepare
+        run: |
+          if [ "${{ needs.detect-changes.outputs.jobs_to_deploy }}" == "all" ]; then
+            JOBS='["etl-api-bigquery-nhanh-bills-daily-sync","etl-api-bigquery-nhanh-bills-transform","etl-api-bigquery-oneoffice-daily-sync"]'
+          else
+            # Convert comma-separated to JSON array
+            # Split by comma, wrap each in quotes, join with comma, wrap in brackets
+            JOBS_LIST="${{ needs.detect-changes.outputs.jobs_to_deploy }}"
+            JOBS=$(echo "$JOBS_LIST" | awk -F',' '{for(i=1;i<=NF;i++){printf "\"%s\"", $i; if(i<NF) printf ","}}' | awk '{print "[" $0 "]"}')
+          fi
+          echo "jobs_json=$JOBS" >> $GITHUB_OUTPUT
+
+  deploy-jobs:
+    runs-on: ubuntu-latest
+    needs: [detect-changes, build-image, prepare-deploy]
+    if: needs.detect-changes.outputs.jobs_to_deploy != 'none'
+    strategy:
+      matrix:
+        job_name: ${{ fromJson(needs.prepare-deploy.outputs.jobs_json) }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Deploy Cloud Run Job
+        run: |
+          SHORT_SHA=$(git rev-parse --short HEAD)
+          IMAGE_NAME="gcr.io/${{ env.PROJECT_ID }}/nhanh-etl:${SHORT_SHA}"
+          
+          python .github/scripts/deploy-job.py \
+            "${{ matrix.job_name }}" \
+            ".github/jobs-config.yaml" \
+            "${{ env.PROJECT_ID }}" \
+            "$IMAGE_NAME"
+

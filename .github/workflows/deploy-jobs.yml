@@ -36,15 +36,14 @@ jobs:
       - name: Detect changed jobs
         id: changes
         run: |
+          set -e  # Exit on error
+          
           # Handle manual trigger with deploy_all flag
           if [ "${{ github.event.inputs.deploy_all }}" == "true" ]; then
             echo "Deploying all jobs (manual trigger with deploy_all=true)"
             echo "jobs=all" >> $GITHUB_OUTPUT
             exit 0
           fi
-
-          # Trust all directories to avoid git 128 errors
-          git config --global --add safe.directory '*'
 
           # For manual workflow_dispatch triggers, default to deploying all jobs
           # since we can't reliably detect changes without a push event
@@ -53,6 +52,9 @@ jobs:
             echo "jobs=all" >> $GITHUB_OUTPUT
             exit 0
           fi
+
+          # Trust all directories to avoid git 128 errors (only needed for push events)
+          git config --global --add safe.directory '*' 2>/dev/null || true
 
           # Get previous commit SHA, fallback to HEAD if only one commit exists
           PREV_SHA="HEAD~1"
@@ -114,6 +116,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory '*' 2>/dev/null || true
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -175,6 +180,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+      
+      - name: Configure git safe directory
+        run: git config --global --add safe.directory '*' 2>/dev/null || true
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2

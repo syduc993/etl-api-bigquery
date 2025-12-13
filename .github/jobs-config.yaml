@@ -112,19 +112,5 @@ jobs:
       layer: "api-to-bronze"
     old_name: "oneoffice-daily-sync-job"  # For migration reference
 
-  # ============================================
-  # LEGACY JOBS (to be migrated/deprecated)
-  # ============================================
-  - name: "nhanh-etl-job"
-    feature: "nhanh-legacy"
-    type: "legacy"
-    description: "Legacy job - to be deprecated"
-    region: "us-central1"
-    deprecated: true
-    labels:
-      project: "etl-api-bigquery"
-      feature: "nhanh-legacy"
-      type: "legacy"
-      environment: "production"
-      status: "deprecated"
+
 

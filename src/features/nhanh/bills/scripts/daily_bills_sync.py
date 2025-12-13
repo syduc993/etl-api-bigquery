@@ -1,33 +1,38 @@
 """
-Daily sync script: Extract từ Nhanh API → GCS → Transform vào fact tables.
-Script này chạy incremental extraction và transform vào fact tables.
+Script để sync bill data hàng ngày (ngày hôm qua - n-1).
+Script này tự động tính ngày hôm qua theo timezone VN (UTC+7) và sync toàn bộ pipeline.
+
+Usage:
+    python -m src.features.nhanh.bills.scripts.daily_bills_sync
+    
+Hoặc chạy trực tiếp:
+    python src/features/nhanh/bills/scripts/daily_bills_sync.py
 """
 import sys
 import os
 from datetime import datetime, timedelta, timezone
 
 # Add project root to path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))))
 
-from src.config import settings
-from src.shared.logging import get_logger
-from src.shared.gcs import GCSLoader
-from src.loaders.watermark import WatermarkTracker
+from src.features.nhanh.bills.pipeline import BillPipeline
 from src.shared.bigquery import BigQueryExternalTableSetup
-from src.pipeline.extraction import extract_entity
-from src.features.nhanh.bills.components.transformer import BillTransformer
+from src.shared.logging import get_logger
 
 logger = get_logger(__name__)
 
+
 def main():
-    """Main function: Extract → Load → Transform."""
+    """
+    Main function: Sync bill data cho ngày hôm qua (n-1).
+    Chạy full pipeline: Extract → Load → Setup External Tables → Transform
+    """
     try:
         logger.info("=" * 60)
         logger.info("Starting Daily Bills Sync Pipeline")
         logger.info("=" * 60)
         
         # Calculate Yesterday (VN Time)
-        # Helper to ensure we get the correct "n-1" day regardless of where this script runs (UTC or otherwise)
         # VN is UTC+7
         vn_tz = timezone(timedelta(hours=7))
         now_vn = datetime.now(vn_tz)
@@ -37,23 +42,23 @@ def main():
         to_date = datetime.combine(yesterday_vn, datetime.max.time()).replace(tzinfo=vn_tz)
         
         logger.info(f"Target Date (n-1): {yesterday_vn}")
-
-        # Step 1: Extract từ Nhanh API → GCS (Bronze)
-        logger.info("Step 1: Extracting bills from Nhanh API...")
-        loader = GCSLoader(bucket_name=settings.bronze_bucket)
-        watermark_tracker = WatermarkTracker()
+        logger.info(f"Date Range: {from_date} to {to_date}")
         
-        extract_entity(
-            platform="nhanh",
-            entity="bills",
-            loader=loader,
-            watermark_tracker=watermark_tracker,
-            incremental=False,  # Force specific date range
+        # Khởi tạo pipeline
+        pipeline = BillPipeline()
+        
+        # Step 1: Extract và Load (Bronze layer)
+        logger.info("Step 1: Extracting and loading bills to GCS...")
+        extract_result = pipeline.run_extract_load(
             from_date=from_date,
-            to_date=to_date
+            to_date=to_date,
+            process_by_day=True
         )
         
-        logger.info("✅ Step 1 completed: Data extracted to GCS")
+        logger.info("✅ Step 1 completed: Data extracted and loaded to GCS")
+        logger.info(f"   Bills extracted: {extract_result.get('bills_extracted', 0)}")
+        logger.info(f"   Products extracted: {extract_result.get('products_extracted', 0)}")
+        logger.info(f"   Days processed: {extract_result.get('days_processed', 0)}")
         
         # Step 2: Setup BigQuery External Tables
         logger.info("Step 2: Setting up BigQuery External Tables...")
@@ -63,8 +68,7 @@ def main():
         
         # Step 3: Transform từ Bronze → Fact Tables
         logger.info("Step 3: Transforming data to fact tables...")
-        transformer = BillTransformer()
-        transform_result = transformer.transform_flatten()
+        transform_result = pipeline.run_transform()
         logger.info(f"✅ Step 3 completed: Transform completed. Job ID: {transform_result.get('job_id')}")
         
         logger.info("=" * 60)
@@ -76,6 +80,7 @@ def main():
     except Exception as e:
         logger.error(f"❌ Daily sync failed: {e}", exc_info=True)
         sys.exit(1)
+
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -42,15 +42,22 @@ jobs:
             exit 0
           fi
 
+          # Get previous commit SHA, fallback to HEAD if only one commit exists
+          PREV_SHA="HEAD~1"
+          if ! git rev-parse --verify "$PREV_SHA" >/dev/null 2>&1; then
+            echo "Warning: Previous commit not found, using HEAD"
+            PREV_SHA="HEAD"
+          fi
+
           # Check if jobs-config.yaml changed
-          if git diff --name-only HEAD~1 HEAD | grep -q "^\.github/jobs-config\.yaml$"; then
+          if git diff --name-only "$PREV_SHA" HEAD 2>/dev/null | grep -q "^\.github/jobs-config\.yaml$"; then
             echo "jobs-config.yaml changed, deploying all jobs"
             echo "jobs=all" >> $GITHUB_OUTPUT
             exit 0
           fi
 
           # Check for changes in feature directories
-          CHANGED_FEATURES=$(git diff --name-only HEAD~1 HEAD | grep "^src/features/" | cut -d'/' -f3 | sort -u || true)
+          CHANGED_FEATURES=$(git diff --name-only "$PREV_SHA" HEAD 2>/dev/null | grep "^src/features/" | cut -d'/' -f3 | sort -u || true)
           
           if [ -z "$CHANGED_FEATURES" ]; then
             echo "No feature changes detected"
@@ -74,7 +81,7 @@ jobs:
           done
 
           # Also check if Dockerfile or requirements.txt changed
-          if git diff --name-only HEAD~1 HEAD | grep -qE "^(docker/Dockerfile|requirements\.txt)$"; then
+          if git diff --name-only "$PREV_SHA" HEAD 2>/dev/null | grep -qE "^(docker/Dockerfile|requirements\.txt)$"; then
             echo "Dockerfile or requirements.txt changed, deploying all jobs"
             echo "jobs=all" >> $GITHUB_OUTPUT
             exit 0
@@ -106,10 +113,11 @@ jobs:
 
       - name: Build and push Docker image
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          # Use GitHub SHA for reliable image tagging
+          SHORT_SHA="${GITHUB_SHA:0:7}"
           IMAGE_NAME="gcr.io/${{ env.PROJECT_ID }}/nhanh-etl"
           
-          echo "Building Docker image..."
+          echo "Building Docker image with SHA: ${SHORT_SHA}..."
           gcloud builds submit \
             --tag ${IMAGE_NAME}:${SHORT_SHA} \
             --tag ${IMAGE_NAME}:latest \
@@ -167,7 +175,8 @@ jobs:
 
       - name: Deploy Cloud Run Job
         run: |
-          SHORT_SHA=$(git rev-parse --short HEAD)
+          # Use GitHub SHA for reliable image reference
+          SHORT_SHA="${GITHUB_SHA:0:7}"
           IMAGE_NAME="gcr.io/${{ env.PROJECT_ID }}/nhanh-etl:${SHORT_SHA}"
           
           python .github/scripts/deploy-job.py \

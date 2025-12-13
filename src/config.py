@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     
     # Logging
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
+
+    # 1Office Configuration
+    oneoffice_base_url: str = Field(
+        default="https://minham.1office.vn/api",
+        alias="ONEOFFICE_BASE_URL"
+    )
+    oneoffice_access_token: str = Field(default="", alias="ONEOFFICE_ACCESS_TOKEN")
     
     class Config:
         env_file = ".env"

@@ -199,10 +199,28 @@ class NhanhApiClient:
                     self._wait_for_rate_limit()
                     self.token_bucket.acquire()
                 
+                # Log request details
+                logger.info(
+                    f"Making API request",
+                    endpoint=endpoint,
+                    url=url,
+                    params=params,
+                    request_body=body
+                )
+                
                 response = self.session.post(url, params=params, json=body, timeout=30)
                 response.raise_for_status()
                 
                 result = response.json()
+                
+                # Log response details
+                logger.info(
+                    f"API response received",
+                    endpoint=endpoint,
+                    response_code=result.get("code"),
+                    data_count=len(result.get("data", [])),
+                    full_response=result
+                )
                 
                 if result.get("code") == 0:
                     error_code = result.get("errorCode", "UNKNOWN_ERROR")
@@ -273,7 +291,13 @@ class NhanhApiClient:
                 
                 page_data = response.get(data_key, [])
                 if not page_data:
-                    logger.warning(f"No data in page {page_num}", page=page_num)
+                    logger.warning(
+                        f"No data in page {page_num}",
+                        page=page_num,
+                        response_code=response.get("code"),
+                        response_data=response.get("data"),
+                        full_response=response
+                    )
                     break
                 
                 all_data.extend(page_data)

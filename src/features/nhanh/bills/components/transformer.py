@@ -21,7 +21,8 @@ class BillTransformer:
     def __init__(self):
         """Khởi tạo transformer với BigQuery client."""
         self.bq_client = BigQueryClient()
-        self.sql_dir = Path(__file__).parent / "sql"
+        # SQL files are in parent directory (bills/sql/), not components/sql/
+        self.sql_dir = Path(__file__).parent.parent / "sql"
         self.sql_path = self.sql_dir # Alias for compatibility
     
     def _get_template_params(self) -> Dict[str, str]:

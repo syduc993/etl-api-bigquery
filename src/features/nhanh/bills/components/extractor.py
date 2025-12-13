@@ -146,6 +146,16 @@ class BillExtractor:
                 }
             }
             
+            # Log request details
+            logger.info(
+                f"Requesting bills with filters",
+                filters=filters,
+                date_field=date_field,
+                chunk_from=chunk_from.isoformat() if hasattr(chunk_from, 'isoformat') else str(chunk_from),
+                chunk_to=chunk_to.isoformat() if hasattr(chunk_to, 'isoformat') else str(chunk_to),
+                request_body=body
+            )
+            
             try:
                 chunk_bills = self.client.fetch_paginated("/bill/list", body)
                 all_bills.extend(chunk_bills)

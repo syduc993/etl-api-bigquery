@@ -5,6 +5,7 @@ File này xử lý việc upload data lên Google Cloud Storage với:
 - Parquet format cho hiệu suất tốt hơn
 - Metadata tracking
 - Idempotent uploads (không duplicate nếu file đã tồn tại)
+- Explicit schema enforcement để tránh schema evolution issues
 """
 import json
 import gzip
@@ -17,6 +18,7 @@ import pyarrow.parquet as pq
 from io import BytesIO
 from src.config import settings
 from src.shared.logging import get_logger
+from src.shared.parquet.schemas import get_schema
 
 logger = get_logger(__name__)
 
@@ -245,17 +247,19 @@ class GCSLoader:
         data: List[Dict[str, Any]],
         partition_date: Optional[date] = None,
         metadata: Optional[Dict[str, Any]] = None,
-        overwrite_partition: bool = True
+        overwrite_partition: bool = True,
+        schema: Optional[pa.Schema] = None
     ) -> str:
         """
         Upload data dưới dạng Parquet lên GCS với partitioning.
         
         Args:
-            entity: Tên entity
+            entity: Tên entity (format: "platform/entity", e.g., "nhanh/bill_products")
             data: Danh sách records để upload
             partition_date: Ngày để partition (mặc định: hôm nay)
             metadata: Metadata tùy chọn
             overwrite_partition: Nếu True, xóa file cũ trước khi upload
+            schema: Explicit PyArrow schema (nếu None, sẽ lookup từ registry hoặc infer)
             
         Returns:
             str: GCS path của file đã upload
@@ -281,9 +285,47 @@ class GCSLoader:
         filename = f"data_{partition_date.isoformat()}_{timestamp_str}.parquet"
         full_path = f"{partition_path}{filename}"
         
+        # Convert to DataFrame
         df = pd.DataFrame(data)
+        
+        # Get schema: explicit > registry lookup > inference
+        if schema is None:
+            schema = get_schema(entity)
+        
+        # Create PyArrow table with or without explicit schema
+        if schema:
+            # Use explicit schema - enforces types and handles coercion
+            # Filter schema to only include fields present in DataFrame
+            # This allows data to have extra fields while enforcing types for known fields
+            df_columns = set(df.columns)
+            schema_fields = [field for field in schema if field.name in df_columns]
+            
+            if schema_fields:
+                # Create filtered schema with only fields present in data
+                filtered_schema = pa.schema(schema_fields)
+                table = pa.Table.from_pandas(df, schema=filtered_schema)
+                logger.debug(
+                    f"Using explicit schema for Parquet write",
+                    entity=entity,
+                    schema_fields=len(schema_fields),
+                    total_schema_fields=len(schema)
+                )
+            else:
+                # No matching fields, fallback to inference
+                table = pa.Table.from_pandas(df)
+                logger.debug(
+                    f"Schema defined but no matching fields in data, using inference",
+                    entity=entity
+                )
+        else:
+            # Fallback to inference (backward compatibility)
+            table = pa.Table.from_pandas(df)
+            logger.debug(
+                f"Using inferred schema for Parquet write",
+                entity=entity
+            )
+        
         parquet_buffer = BytesIO()
-        table = pa.Table.from_pandas(df)
         pq.write_table(table, parquet_buffer, compression='snappy')
         parquet_bytes = parquet_buffer.getvalue()
         
@@ -299,7 +341,8 @@ class GCSLoader:
             entity=entity,
             records=len(data),
             partition_date=partition_date.isoformat(),
-            size_bytes=len(parquet_bytes)
+            size_bytes=len(parquet_bytes),
+            schema_enforced=(schema is not None)
         )
         
         if metadata:
@@ -314,18 +357,20 @@ class GCSLoader:
         partition_date: Optional[date] = None,
         date_field: str = "date",
         metadata: Optional[Dict[str, Any]] = None,
-        overwrite_partition: bool = True
+        overwrite_partition: bool = True,
+        schema: Optional[pa.Schema] = None
     ) -> str:
         """
         Upload data dưới dạng Parquet, group theo ngày từ date_field.
         
         Args:
-            entity: Tên entity
+            entity: Tên entity (format: "platform/entity")
             data: Danh sách records
             partition_date: Ngày để partition (nếu None, parse từ date_field)
             date_field: Tên field chứa date
             metadata: Metadata tùy chọn
             overwrite_partition: Nếu True, xóa file cũ
+            schema: Explicit PyArrow schema (nếu None, sẽ lookup từ registry)
             
         Returns:
             str: GCS path của file đã upload
@@ -360,5 +405,6 @@ class GCSLoader:
             data=data,
             partition_date=partition_date,
             metadata=metadata,
-            overwrite_partition=overwrite_partition
+            overwrite_partition=overwrite_partition,
+            schema=schema
         )

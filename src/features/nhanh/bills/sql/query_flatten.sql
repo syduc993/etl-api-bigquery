@@ -65,18 +65,37 @@ WHEN NOT MATCHED THEN
     INSERT ROW;
 
 -- Insert Bill Products from separate bill_products_raw table (Parquet)
-INSERT INTO `{project_id}.{dataset}.fact_sales_bills_product_v3_0`
-SELECT 
-    bill_id,
-    id AS product_id,
-    code AS product_code,
-    barcode AS product_barcode,
-    name AS product_name,
-    quantity,
-    price,
-    discount,
-    vat.percent AS vat_percent,
-    vat.amount AS vat_amount,
-    amount,
-    CURRENT_TIMESTAMP() AS extraction_timestamp
-FROM `{project_id}.{dataset_raw}.nhanh_bill_products_raw`; -- Parquet External table
+-- Use MERGE to avoid duplicates when re-running transform
+MERGE `{project_id}.{dataset}.fact_sales_bills_product_v3_0` T
+USING (
+    SELECT 
+        bill_id,
+        id AS product_id,
+        code AS product_code,
+        barcode AS product_barcode,
+        name AS product_name,
+        quantity,
+        price,
+        discount,
+        vat.percent AS vat_percent,
+        vat.amount AS vat_amount,
+        amount,
+        CURRENT_TIMESTAMP() AS extraction_timestamp
+    FROM `{project_id}.{dataset_raw}.nhanh_bill_products_raw` -- Parquet External table
+) S
+ON T.bill_id = S.bill_id 
+   AND T.product_id = S.product_id
+WHEN MATCHED THEN
+    UPDATE SET
+        product_code = S.product_code,
+        product_barcode = S.product_barcode,
+        product_name = S.product_name,
+        quantity = S.quantity,
+        price = S.price,
+        discount = S.discount,
+        vat_percent = S.vat_percent,
+        vat_amount = S.vat_amount,
+        amount = S.amount,
+        extraction_timestamp = S.extraction_timestamp
+WHEN NOT MATCHED THEN
+    INSERT ROW;

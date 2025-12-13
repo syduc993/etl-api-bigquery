@@ -7,9 +7,9 @@ Feature này chứa toàn bộ ETL cho bills:
 - Loader: Upload lên GCS + BigQuery
 - Pipeline: Orchestrate E→T→L
 """
-from .extractor import BillExtractor
-from .transformer import BillTransformer
-from .loader import BillLoader
+from .components.extractor import BillExtractor
+from .components.transformer import BillTransformer
+from .components.loader import BillLoader
 from .pipeline import BillPipeline
 
 __all__ = ['BillExtractor', 'BillTransformer', 'BillLoader', 'BillPipeline']

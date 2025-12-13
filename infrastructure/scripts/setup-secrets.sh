@@ -13,6 +13,8 @@ read -p "Nhanh App ID: " APP_ID
 read -p "Nhanh Business ID: " BUSINESS_ID
 read -sp "Nhanh Access Token: " ACCESS_TOKEN
 echo ""
+read -sp "1Office Access Token (optional, press Enter to skip): " ONEOFFICE_TOKEN
+echo ""
 
 # Create secrets
 echo "Creating secrets..."
@@ -58,6 +60,22 @@ gcloud secrets add-iam-policy-binding nhanh-access-token \
   --member="serviceAccount:${SERVICE_ACCOUNT}" \
   --role="roles/secretmanager.secretAccessor" \
   --project=${PROJECT_ID}
+
+# Create OneOffice secret if provided
+if [ -n "${ONEOFFICE_TOKEN}" ]; then
+  echo "Creating OneOffice access token secret..."
+  echo -n "${ONEOFFICE_TOKEN}" | gcloud secrets create oneoffice-access-token \
+    --data-file=- \
+    --project=${PROJECT_ID} \
+    2>/dev/null || echo -n "${ONEOFFICE_TOKEN}" | gcloud secrets versions add oneoffice-access-token \
+    --data-file=- \
+    --project=${PROJECT_ID}
+  
+  gcloud secrets add-iam-policy-binding oneoffice-access-token \
+    --member="serviceAccount:${SERVICE_ACCOUNT}" \
+    --role="roles/secretmanager.secretAccessor" \
+    --project=${PROJECT_ID}
+fi
 
 echo "Setup completed!"
 

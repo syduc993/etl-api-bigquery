@@ -104,18 +104,6 @@ class BillPipeline:
         logger.info("Completed Extract-Load pipeline", **result)
         return result
 
-    
-    def run_transform(self) -> Dict[str, Any]:
-        """
-        DEPRECATED: Transform step không còn cần thiết.
-        Flatten đã được tích hợp vào loader, data được load trực tiếp vào fact tables.
-        """
-        logger.warning("run_transform() is deprecated. Flatten is now integrated in loader.")
-        raise NotImplementedError(
-            "Transform step is no longer needed. "
-            "Data is flattened and loaded directly to fact tables in run_extract_load()."
-        )
-    
     def run_full_pipeline(
         self,
         from_date: Optional[datetime] = None,

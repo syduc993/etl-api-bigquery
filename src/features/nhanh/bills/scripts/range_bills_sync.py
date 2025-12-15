@@ -24,7 +24,6 @@ from typing import Optional
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))))))
 
 from src.features.nhanh.bills.pipeline import BillPipeline
-from src.shared.bigquery import BigQueryExternalTableSetup
 from src.shared.logging import get_logger
 
 logger = get_logger(__name__)
@@ -51,7 +50,7 @@ def parse_date(date_str: str) -> datetime:
 def main():
     """
     Main function: Sync bill data theo khoảng ngày.
-    Chạy full pipeline: Extract → Load → Setup External Tables → Transform
+    Chạy full pipeline: Extract → Load (flatten integrated in loader)
     """
     try:
         logger.info("=" * 60)
@@ -105,16 +104,8 @@ def main():
         logger.info(f"   Products extracted: {extract_result.get('products_extracted', 0)}")
         logger.info(f"   Days processed: {extract_result.get('days_processed', 0)}")
         
-        # Step 2: Setup BigQuery External Tables
-        logger.info("Step 2: Setting up BigQuery External Tables...")
-        bq_setup = BigQueryExternalTableSetup()
-        bq_setup.setup_all_tables(platforms=["nhanh"])
-        logger.info("✅ Step 2 completed: External Tables updated")
-        
-        # Step 3: Transform từ Bronze → Fact Tables
-        logger.info("Step 3: Transforming data to fact tables...")
-        transform_result = pipeline.run_transform()
-        logger.info(f"✅ Step 3 completed: Transform completed. Job ID: {transform_result.get('job_id')}")
+        # Note: Flatten đã được tích hợp vào loader, data được load trực tiếp vào fact tables
+        # Không cần setup external tables và transform step nữa
         
         logger.info("=" * 60)
         logger.info("✅ Range Bills Sync Pipeline Completed Successfully!")

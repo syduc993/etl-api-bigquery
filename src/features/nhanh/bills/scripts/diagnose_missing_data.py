@@ -227,9 +227,9 @@ def main():
             print("      → Cần chạy: BigQueryExternalTableSetup.setup_all_tables()")
         elif fact_bills == 0 and fact_products == 0:
             print("   ❌ VẤN ĐỀ: Có dữ liệu trong Bronze nhưng không có trong Fact Tables")
-            print("      → Transform step chưa chạy hoặc failed")
-            print("      → Cần chạy: BillTransformer.transform_flatten()")
-            print("      → Hoặc kiểm tra schedule transform")
+            print("      → Load step chưa chạy hoặc failed")
+            print("      → Flatten và load đã được tích hợp vào loader")
+            print("      → Cần chạy: BillPipeline.run_extract_load() để load data vào fact tables")
         else:
             print("   ✅ Dữ liệu đầy đủ ở tất cả các layer")
     

@@ -1,11 +1,10 @@
 """
 Pipeline cho Bills feature.
-Orchestrate toàn bộ ETL flow: Extract → Transform → Load.
+Orchestrate toàn bộ ETL flow: Extract → Load (flatten integrated in loader).
 """
 from datetime import datetime, date, timedelta
 from typing import Dict, Any, Optional
 from .components.extractor import BillExtractor
-from .components.transformer import BillTransformer
 from .components.loader import BillLoader
 from src.shared.logging import get_logger
 
@@ -15,13 +14,13 @@ logger = get_logger(__name__)
 class BillPipeline:
     """
     Pipeline ETL cho bills.
-    Kết hợp Extractor, Transformer, Loader thành một flow hoàn chỉnh.
+    Kết hợp Extractor và Loader thành một flow hoàn chỉnh.
+    Flatten đã được tích hợp vào loader, không cần transformer nữa.
     """
     
     def __init__(self):
         """Khởi tạo pipeline với các components."""
         self.extractor = BillExtractor()
-        self.transformer = BillTransformer()
         self.loader = BillLoader()
     
     def run_extract_load(
@@ -108,10 +107,14 @@ class BillPipeline:
     
     def run_transform(self) -> Dict[str, Any]:
         """
-        Chạy Transform: Raw -> Flattened (Clean).
+        DEPRECATED: Transform step không còn cần thiết.
+        Flatten đã được tích hợp vào loader, data được load trực tiếp vào fact tables.
         """
-        logger.info("Starting Transform pipeline (Raw -> Clean)")
-        return self.transformer.transform_flatten()
+        logger.warning("run_transform() is deprecated. Flatten is now integrated in loader.")
+        raise NotImplementedError(
+            "Transform step is no longer needed. "
+            "Data is flattened and loaded directly to fact tables in run_extract_load()."
+        )
     
     def run_full_pipeline(
         self,
@@ -119,30 +122,22 @@ class BillPipeline:
         to_date: Optional[datetime] = None
     ) -> Dict[str, Any]:
         """
-        Chạy full ETL pipeline: Extract -> Load Raw -> Setup External Tables -> Transform Clean.
+        Chạy full ETL pipeline: Extract → Load (flatten integrated).
+        Flatten đã được tích hợp vào loader, không cần transform step nữa.
         """
-        logger.info("Starting full ETL pipeline for bills")
+        logger.info("Starting full ETL pipeline for bills (flatten integrated in loader)")
         
         result = {
             "extract_load": {},
-            "external_tables": {},
-            "transform": {},
             "status": "success"
         }
         
         try:
-            # Step 1: Extract + Load to Raw (GCS)
+            # Extract + Load (flatten integrated in loader)
             result["extract_load"] = self.run_extract_load(
                 from_date=from_date,
                 to_date=to_date
             )
-            
-            # Step 2: Setup External Tables in BigQuery
-            logger.info("Setting up BigQuery External Tables...")
-            result["external_tables"] = self.loader.setup_external_tables()
-            
-            # Step 3: Flatten Data (Transform)
-            result["transform"] = self.run_transform()
             
         except Exception as e:
             logger.error(f"Pipeline failed: {e}")

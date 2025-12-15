@@ -6,15 +6,14 @@ Module này xử lý việc ETL (Extract, Transform, Load) dữ liệu hóa đơ
 
 - **`components/`**: Chứa logic chính của feature.
     - `extractor.py`: Logic gọi API `/api/bill/search` và tách products.
-    - `transformer.py`: Logic xử lý data (làm sạch, type casting) trước khi đẩy vào Fact table.
-    - `loader.py`: Logic tải data lên GCS và setup External Tables.
+    - `loader.py`: Logic flatten nested structures, tải data lên GCS và load trực tiếp vào fact tables.
     - `config.py`: Cấu hình riêng cho feature bills.
     - `types.py`: Định nghĩa các models/schemas.
 
 - **`scripts/`**: Các script hỗ trợ vận hành và kiểm tra dữ liệu.
-    - `repopulate_fact_tables.py`: Chạy lại logic transform từ raw data.
-    - `check_bq_data.py`: Kiểm tra số lượng dòng trong BigQuery.
+    - `check_fact_tables_data.py`: Kiểm tra số lượng dòng trong Fact Tables.
     - `check_date_products.py`: Kiểm tra consistency của dữ liệu bill-product.
+    - `diagnose_missing_data.py`: Chẩn đoán vấn đề thiếu dữ liệu.
 
 - **`docs/`**: Tài liệu kỹ thuật tham khảo.
     - `BILL_LIST_API.md`: Tài liệu tham khảo về API response của Nhanh.

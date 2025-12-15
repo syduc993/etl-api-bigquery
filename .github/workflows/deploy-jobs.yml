@@ -86,7 +86,7 @@ jobs:
           for feature in $CHANGED_FEATURES; do
             case $feature in
               nhanh)
-                JOBS_TO_DEPLOY="${JOBS_TO_DEPLOY} etl-api-bigquery-nhanh-bills-daily-sync etl-api-bigquery-nhanh-bills-transform"
+                JOBS_TO_DEPLOY="${JOBS_TO_DEPLOY} etl-api-bigquery-nhanh-bills-daily-sync"
                 ;;
               one_office|oneoffice)
                 JOBS_TO_DEPLOY="${JOBS_TO_DEPLOY} etl-api-bigquery-oneoffice-daily-sync"
@@ -161,7 +161,7 @@ jobs:
         id: prepare
         run: |
           if [ "${{ needs.detect-changes.outputs.jobs_to_deploy }}" == "all" ]; then
-            JOBS='["etl-api-bigquery-nhanh-bills-daily-sync","etl-api-bigquery-nhanh-bills-transform","etl-api-bigquery-oneoffice-daily-sync"]'
+            JOBS='["etl-api-bigquery-nhanh-bills-daily-sync","etl-api-bigquery-oneoffice-daily-sync"]'
           else
             # Convert comma-separated to JSON array
             # Split by comma, wrap each in quotes, join with comma, wrap in brackets

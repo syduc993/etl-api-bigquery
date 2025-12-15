@@ -14,7 +14,7 @@ jobs:
   - name: "etl-api-bigquery-nhanh-bills-daily-sync"
     feature: "nhanh-bills"
     type: "sync"
-    description: "Daily sync bills from Nhanh API → GCS → Transform to fact tables"
+    description: "Daily sync bills from Nhanh API → GCS → Load directly to fact tables (flattened in Python)"
     region: "asia-southeast1"
     command: "python"
     args: "src/features/nhanh/bills/daily_sync.py"
@@ -45,37 +45,6 @@ jobs:
       environment: "production"
       layer: "bronze-to-fact"
     old_name: "nhanh-bills-daily-sync"  # For migration reference
-
-  - name: "etl-api-bigquery-nhanh-bills-transform"
-    feature: "nhanh-bills"
-    type: "transform"
-    description: "Transform bills from bronze external tables to fact tables (triggered by GCS events)"
-    region: "asia-southeast1"
-    command: "python"
-    args: "src/features/nhanh/bills/transform_trigger.py"
-    resources:
-      memory: "2Gi"
-      cpu: "2"
-    config:
-      max_retries: 2
-      task_timeout: 1800  # 30 minutes
-    env_vars:
-      GCP_PROJECT: "${PROJECT_ID}"
-      GCP_REGION: "asia-southeast1"
-      BRONZE_BUCKET: "${PROJECT_ID}"
-      BRONZE_DATASET: "bronze"
-      TARGET_DATASET: "nhanhVN"
-      LOG_LEVEL: "INFO"
-    secrets: {}
-    schedule: null  # Triggered by GCS events, not scheduled
-    labels:
-      project: "etl-api-bigquery"
-      feature: "nhanh-bills"
-      type: "transform"
-      environment: "production"
-      layer: "bronze-to-fact"
-      trigger: "event-driven"
-    old_name: "nhanh-bills-transform-job"  # For migration reference
 
   # ============================================
   # ONEOFFICE FEATURE

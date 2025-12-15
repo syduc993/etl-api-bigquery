@@ -231,6 +231,74 @@ class OneOfficeLoader:
             self.client.create_table(table)
             logger.info(f"Created table {self.table_id}")
 
+    def _delete_snapshot_partition(self, snapshot_date: date) -> int:
+        """
+        Xóa partition theo snapshot_date trước khi insert để tránh duplicate khi rerun.
+
+        Returns:
+            int: Số dòng đã xóa (có thể 0 nếu không có dữ liệu cũ).
+        """
+        try:
+            query = """
+            DELETE FROM `{table_id}`
+            WHERE snapshot_date = @snapshot_date
+            """.replace("{table_id}", self.table_id)
+
+            job = self.client.query(
+                query,
+                job_config=bigquery.QueryJobConfig(
+                    query_parameters=[
+                        bigquery.ScalarQueryParameter("snapshot_date", "DATE", snapshot_date.isoformat())
+                    ]
+                )
+            )
+            job.result()
+            deleted = (
+                job.num_dml_affected_rows
+                if hasattr(job, "num_dml_affected_rows") and job.num_dml_affected_rows is not None
+                else 0
+            )
+            logger.info(
+                "Deleted existing partition before insert",
+                snapshot_date=snapshot_date.isoformat(),
+                deleted_rows=deleted
+            )
+            return deleted
+        except Exception as e:
+            logger.warning(
+                "Failed to delete partition before insert; continuing",
+                snapshot_date=snapshot_date.isoformat(),
+                error=str(e)
+            )
+            return 0
+
+    def _deduplicate_raw_by_code(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """
+        Deduplicate in-memory theo khóa snapshot_date + code (mỗi batch là 1 snapshot_date).
+        Ưu tiên bản ghi có date_updated mới nhất; nếu không có, giữ bản ghi gặp sau cùng.
+        """
+        deduped: Dict[str, Dict[str, Any]] = {}
+
+        def newer_than(left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+            left_dt_str = parse_date_ddmmyyyy(left.get("date_updated"))
+            right_dt_str = parse_date_ddmmyyyy(right.get("date_updated"))
+            if left_dt_str and right_dt_str:
+                return left_dt_str > right_dt_str
+            if left_dt_str and not right_dt_str:
+                return True
+            if not left_dt_str and right_dt_str:
+                return False
+            return True  # nếu cả hai không có date_updated, ưu tiên bản ghi mới gặp
+
+        for idx, item in enumerate(data):
+            code = item.get("code")
+            # Nếu không có code, gắn key tạm riêng để không merge sai
+            key = code if code else f"__no_code_{idx}"
+            if key not in deduped or newer_than(item, deduped[key]):
+                deduped[key] = item
+
+        return list(deduped.values())
+
     def _delete_partition_files(self, partition_path: str, file_prefix: str = "timestamp_"):
         """
         Xóa các file cũ trong partition trước khi upload file mới.
@@ -353,11 +421,18 @@ class OneOfficeLoader:
         self._create_table_if_not_exists()
         
         today = date.today()
+
+        # Deduplicate in-memory theo code trong batch ngày hiện tại
+        data = self._deduplicate_raw_by_code(data)
         
         # Step 1: Upload raw JSON data lên GCS trước (backup raw data)
         gcs_path = self._upload_raw_json_to_gcs(data, today)
         if gcs_path:
             logger.info(f"Raw data backed up to GCS: gs://{settings.bronze_bucket}/{gcs_path}")
+
+        # Step 1.5: Xóa partition cũ để idempotent trước khi insert
+        self._delete_snapshot_partition(today)
+
         rows_to_insert = []
         
         for item in data:

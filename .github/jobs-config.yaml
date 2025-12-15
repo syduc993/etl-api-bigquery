@@ -81,5 +81,36 @@ jobs:
       layer: "api-to-bronze"
     old_name: "oneoffice-daily-sync-job"  # For migration reference
 
+  # ============================================
+  # WEBVIEW MESSCARD FEATURE
+  # ============================================
+  - name: "webview-messenger-reader-messcard-daily"
+    feature: "webview-messcard"
+    type: "notify"
+    description: "Trigger webview messenger service to send store-based messcard and matrix report"
+    region: "asia-southeast1"
+    command: "python"
+    args: "src/scripts/send_messcard.py"
+    resources:
+      memory: "1Gi"
+      cpu: "1"
+    config:
+      max_retries: 2
+      task_timeout: 900  # 15 minutes
+    env_vars:
+      GCP_PROJECT: "${PROJECT_ID}"
+      GCP_REGION: "asia-southeast1"
+      MESSCARD_BASE_URL: "https://webview-messenger-reader-858039461446.asia-southeast1.run.app"
+      LOG_LEVEL: "INFO"
+    labels:
+      project: "etl-api-bigquery"
+      feature: "webview-messcard"
+      type: "notify"
+      environment: "production"
+      layer: "app-trigger"
+    schedule:
+      cron: "5 16 * * *"  # Daily at 16:05 VN time (UTC+7)
+      timezone: "Asia/Ho_Chi_Minh"
+      name: "webview-messenger-reader-messcard-schedule"
 
 

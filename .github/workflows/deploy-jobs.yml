@@ -161,7 +161,7 @@ jobs:
         id: prepare
         run: |
           if [ "${{ needs.detect-changes.outputs.jobs_to_deploy }}" == "all" ]; then
-            JOBS='["etl-api-bigquery-nhanh-bills-daily-sync","etl-api-bigquery-oneoffice-daily-sync"]'
+            JOBS='["etl-api-bigquery-nhanh-bills-daily-sync","etl-api-bigquery-oneoffice-daily-sync","webview-messenger-reader-messcard-daily"]'
           else
             # Convert comma-separated to JSON array
             # Split by comma, wrap each in quotes, join with comma, wrap in brackets
@@ -211,4 +211,34 @@ jobs:
             ".github/jobs-config.yaml" \
             "${{ env.PROJECT_ID }}" \
             "$IMAGE_NAME"
+
+      - name: Create/Update Cloud Scheduler (only for messcard job)
+        if: matrix.job_name == 'webview-messenger-reader-messcard-daily'
+        run: |
+          PROJECT_ID="${{ env.PROJECT_ID }}"
+          REGION="${{ env.REGION }}"
+          JOB_NAME="webview-messenger-reader-messcard-daily"
+          SCHEDULER_NAME="webview-messenger-reader-messcard-schedule"
+          CRON="5 16 * * *" # 16:05 GMT+7
+          TIMEZONE="Asia/Ho_Chi_Minh"
+          SERVICE_ACCOUNT="${PROJECT_ID}@appspot.gserviceaccount.com"
+          JOB_API_URL="https://${REGION}-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/${PROJECT_ID}/jobs/${JOB_NAME}:run"
+
+          echo "Ensuring Cloud Scheduler job: ${SCHEDULER_NAME}"
+          gcloud scheduler jobs describe "${SCHEDULER_NAME}" \
+            --location "${REGION}" \
+            --project "${PROJECT_ID}" >/dev/null 2>&1 && \
+            gcloud scheduler jobs delete "${SCHEDULER_NAME}" \
+              --location "${REGION}" \
+              --project "${PROJECT_ID}" \
+              --quiet || true
+
+          gcloud scheduler jobs create http "${SCHEDULER_NAME}" \
+            --location "${REGION}" \
+            --schedule "${CRON}" \
+            --uri "${JOB_API_URL}" \
+            --http-method POST \
+            --oauth-service-account-email "${SERVICE_ACCOUNT}" \
+            --time-zone "${TIMEZONE}" \
+            --project "${PROJECT_ID}"
 

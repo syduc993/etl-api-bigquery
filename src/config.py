@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     silver_dataset: str = Field(default="silver", alias="SILVER_DATASET")
     gold_dataset: str = Field(default="gold", alias="GOLD_DATASET")
     target_dataset: str = Field(default="nhanhVN", alias="TARGET_DATASET")
+    oneoffice_dataset: str = Field(default="oneoffice", alias="ONEOFFICE_DATASET")
     
     # Nhanh API Configuration
     nhanh_api_base_url: str = Field(
@@ -63,12 +64,17 @@ settings = Settings()
 
 def get_nhanh_credentials() -> dict:
     """
-    Lấy credentials của Nhanh API từ Secret Manager.
+    Lấy credentials của Nhanh API từ environment variables hoặc Secret Manager.
     
-    Hàm này sẽ đọc 3 secrets:
-    - nhanh-app-id: App ID của ứng dụng
-    - nhanh-business-id: Business ID trên Nhanh.vn
-    - nhanh-access-token: Access token để authenticate
+    Ưu tiên đọc từ environment variables (cho local testing):
+    - NHANH_APP_ID: App ID của ứng dụng
+    - NHANH_BUSINESS_ID: Business ID trên Nhanh.vn
+    - NHANH_ACCESS_TOKEN: Access token để authenticate
+    
+    Nếu không có trong env, sẽ lấy từ Secret Manager (cho cloud):
+    - nhanh-app-id
+    - nhanh-business-id
+    - nhanh-access-token
     
     Returns:
         dict: Dictionary chứa appId, businessId, và accessToken
@@ -76,12 +82,27 @@ def get_nhanh_credentials() -> dict:
     Raises:
         ValueError: Nếu không thể lấy được secret nào đó
     """
+    credentials = {}
+    
+    # Ưu tiên đọc từ environment variables (cho local testing)
+    app_id = os.getenv("NHANH_APP_ID")
+    business_id = os.getenv("NHANH_BUSINESS_ID")
+    access_token = os.getenv("NHANH_ACCESS_TOKEN")
+    
+    if app_id and business_id and access_token:
+        # Có đủ credentials từ env
+        credentials = {
+            "appId": app_id.strip(),
+            "businessId": business_id.strip(),
+            "accessToken": access_token.strip()
+        }
+        return credentials
+    
+    # Nếu không có trong env, lấy từ Secret Manager (cho cloud)
     from google.cloud import secretmanager
     
     client = secretmanager.SecretManagerServiceClient()
     project_id = settings.gcp_project
-    
-    credentials = {}
     
     # Get secrets from Secret Manager
     secret_names = {

@@ -18,7 +18,13 @@ class OneOfficeExtractor:
     
     def __init__(self):
         self.base_url = settings.oneoffice_base_url
-        self.access_token = settings.oneoffice_access_token
+        self.access_token = settings.oneoffice_access_token.strip() if settings.oneoffice_access_token else ""
+        
+        # Debug logging để kiểm tra token
+        if self.access_token:
+            logger.debug(f"1Office access token loaded: {self.access_token[:10]}... (length: {len(self.access_token)})")
+        else:
+            logger.warning("No access token provided for 1Office API. Please set ONEOFFICE_ACCESS_TOKEN.")
         
     def fetch_all_personnel(self) -> List[Dict[str, Any]]:
         """

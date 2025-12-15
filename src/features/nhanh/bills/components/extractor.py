@@ -100,7 +100,8 @@ class BillExtractor:
             date_field = "fromDate"
             date_to_field = "toDate"
         
-        logger.info(
+        # Log chunk info at DEBUG level to reduce verbosity
+        logger.debug(
             f"Fetching bills in {len(date_chunks)} date chunks",
             chunks=len(date_chunks),
             date_field=date_field
@@ -108,7 +109,7 @@ class BillExtractor:
         
         # Fetch bills for each date chunk
         for chunk_idx, (chunk_from, chunk_to) in enumerate(date_chunks, 1):
-            logger.info(
+            logger.debug(
                 f"Processing date chunk {chunk_idx}/{len(date_chunks)}: "
                 f"{chunk_from.date()} to {chunk_to.date()}",
                 chunk=chunk_idx,
@@ -146,8 +147,8 @@ class BillExtractor:
                 }
             }
             
-            # Log request details
-            logger.info(
+            # Log request details at DEBUG level to reduce verbosity
+            logger.debug(
                 f"Requesting bills with filters",
                 filters=filters,
                 date_field=date_field,

@@ -199,8 +199,8 @@ class NhanhApiClient:
                     self._wait_for_rate_limit()
                     self.token_bucket.acquire()
                 
-                # Log request details
-                logger.info(
+                # Log request details (DEBUG level to reduce verbosity)
+                logger.debug(
                     f"Making API request",
                     endpoint=endpoint,
                     url=url,
@@ -213,8 +213,8 @@ class NhanhApiClient:
                 
                 result = response.json()
                 
-                # Log response details
-                logger.info(
+                # Log response details (DEBUG level to reduce verbosity)
+                logger.debug(
                     f"API response received",
                     endpoint=endpoint,
                     response_code=result.get("code"),
@@ -301,7 +301,8 @@ class NhanhApiClient:
                     break
                 
                 all_data.extend(page_data)
-                logger.info(
+                # Log page fetch details at DEBUG level to reduce verbosity
+                logger.debug(
                     f"Fetched page {page_num}: {len(page_data)} records",
                     page=page_num,
                     records=len(page_data),

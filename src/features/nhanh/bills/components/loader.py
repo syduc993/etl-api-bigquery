@@ -119,24 +119,35 @@ class BillLoader:
         # Flatten payment
         payment = bill.get("payment")
         if isinstance(payment, dict):
-            flattened["payment_total_amount"] = payment.get("amount")
-            flattened["payment_customer_amount"] = payment.get("customerAmount")
-            flattened["payment_discount"] = payment.get("discount")
-            flattened["payment_points"] = payment.get("points")
+            # Enforce types to avoid Parquet schema mismatch (INT64 vs FLOAT64)
+            amount = payment.get("amount")
+            flattened["payment_total_amount"] = float(amount) if amount is not None else None
+            
+            customer_amount = payment.get("customerAmount")
+            flattened["payment_customer_amount"] = float(customer_amount) if customer_amount is not None else None
+            
+            discount = payment.get("discount")
+            flattened["payment_discount"] = float(discount) if discount is not None else None
+            
+            points = payment.get("points")
+            flattened["payment_points"] = float(points) if points is not None else None
             
             # Flatten payment methods
             cash = payment.get("cash")
             if isinstance(cash, dict):
-                flattened["payment_cash_amount"] = cash.get("amount")
+                cash_amount = cash.get("amount")
+                flattened["payment_cash_amount"] = float(cash_amount) if cash_amount is not None else None
             
             transfer = payment.get("transfer")
             if isinstance(transfer, dict):
-                flattened["payment_transfer_amount"] = transfer.get("amount")
+                transfer_amount = transfer.get("amount")
+                flattened["payment_transfer_amount"] = float(transfer_amount) if transfer_amount is not None else None
                 flattened["payment_transfer_account_id"] = transfer.get("accountId")
             
             credit = payment.get("credit")
             if isinstance(credit, dict):
-                flattened["payment_credit_amount"] = credit.get("amount")
+                credit_amount = credit.get("amount")
+                flattened["payment_credit_amount"] = float(credit_amount) if credit_amount is not None else None
         
         return flattened
     

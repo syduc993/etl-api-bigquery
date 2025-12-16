@@ -294,8 +294,19 @@ class BillLoader:
                 source_format=bigquery.SourceFormat.PARQUET,
                 write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
                 # Auto-detect schema từ Parquet file
-                autodetect=True
+                autodetect=True,
+                # Allow schema updates để handle type changes (INTEGER -> FLOAT64)
+                schema_update_options=[
+                    bigquery.SchemaUpdateOption.ALLOW_FIELD_ADDITION,
+                    bigquery.SchemaUpdateOption.ALLOW_FIELD_RELAXATION
+                ]
             )
+            
+            # Nếu table đã tồn tại, sử dụng schema từ table để tránh mismatch
+            if table_exists:
+                table = self.bq_client.get_table(table_id)
+                job_config.write_disposition = bigquery.WriteDisposition.WRITE_APPEND
+                # Không cần set schema vì BigQuery sẽ tự convert types nếu có schema_update_options
             
             # Chỉ set time partitioning nếu table chưa tồn tại hoặc chưa có partition
             if not table_exists or not has_partitioning:
@@ -520,6 +531,48 @@ class BillLoader:
                 # Không raise để không block pipeline
         
         return gcs_path
+    
+    def load_bills_from_gcs(
+        self,
+        gcs_uri: str,
+        partition_date: date
+    ) -> None:
+        """
+        Load bills data từ GCS Parquet file có sẵn vào BigQuery fact table.
+        Không cần flatten/upload lại vì file đã được flatten sẵn.
+        
+        Args:
+            gcs_uri: GCS URI của Parquet file (gs://bucket/path/to/file.parquet)
+            partition_date: Ngày partition
+        """
+        self._load_gcs_to_bigquery(
+            gcs_uri=gcs_uri,
+            table_id=self.bills_table_id,
+            partition_date=partition_date,
+            partition_field="date",
+            partition_type="date"
+        )
+    
+    def load_products_from_gcs(
+        self,
+        gcs_uri: str,
+        partition_date: date
+    ) -> None:
+        """
+        Load bill_products data từ GCS Parquet file có sẵn vào BigQuery fact table.
+        Không cần flatten/upload lại vì file đã được flatten sẵn.
+        
+        Args:
+            gcs_uri: GCS URI của Parquet file (gs://bucket/path/to/file.parquet)
+            partition_date: Ngày partition
+        """
+        self._load_gcs_to_bigquery(
+            gcs_uri=gcs_uri,
+            table_id=self.products_table_id,
+            partition_date=partition_date,
+            partition_field="extraction_timestamp",
+            partition_type="timestamp"
+        )
     
     def setup_external_tables(self) -> Dict[str, str]:
         """Setup BigQuery external tables cho bills và bill_products."""

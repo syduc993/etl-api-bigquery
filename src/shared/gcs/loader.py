@@ -288,6 +288,16 @@ class GCSLoader:
         # Convert to DataFrame
         df = pd.DataFrame(data)
         
+        # Normalize timestamps trong DataFrame: convert datetime64[ns] → datetime64[us]
+        # BigQuery TIMESTAMP chỉ hỗ trợ microsecond precision, không hỗ trợ nanosecond
+        # PyArrow sẽ tự động tạo nanosecond precision nếu DataFrame có datetime64[ns]
+        # Fix này đảm bảo tất cả timestamp columns có microsecond precision
+        for col in df.columns:
+            if df[col].dtype == 'datetime64[ns]':
+                # Convert nanosecond precision to microsecond precision
+                # Use astype to force datetime64[us] instead of just floor
+                df[col] = df[col].dt.floor('us').astype('datetime64[us]')
+        
         # Get schema: explicit > registry lookup > inference
         if schema is None:
             schema = get_schema(entity)
@@ -302,7 +312,18 @@ class GCSLoader:
             
             if schema_fields:
                 # Create filtered schema with only fields present in data
-                filtered_schema = pa.schema(schema_fields)
+                # Override timestamp fields to use microsecond precision (not nanosecond)
+                schema_fields_fixed = []
+                for field in schema_fields:
+                    if pa.types.is_timestamp(field.type):
+                        # Force microsecond precision for BigQuery compatibility
+                        schema_fields_fixed.append(
+                            pa.field(field.name, pa.timestamp('us'), nullable=field.nullable)
+                        )
+                    else:
+                        schema_fields_fixed.append(field)
+                
+                filtered_schema = pa.schema(schema_fields_fixed)
                 table = pa.Table.from_pandas(df, schema=filtered_schema)
                 logger.debug(
                     f"Using explicit schema for Parquet write",

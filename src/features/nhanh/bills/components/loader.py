@@ -196,27 +196,36 @@ class BillLoader:
             partition_type: Type of partition - "date" (direct DATE field) or "timestamp" (DATE(extraction_timestamp))
         """
         try:
-            # Check if table exists
+            # Check if table exists and has partitioning
+            table = None
+            has_partitioning = False
             try:
-                self.bq_client.get_table(table_id)
+                table = self.bq_client.get_table(table_id)
+                has_partitioning = table.time_partitioning is not None
             except Exception:
                 # Table chưa tồn tại, không cần delete
                 logger.debug(f"Table {table_id} does not exist, skipping delete")
                 return
             
             # Delete partition data
-            # Sử dụng _PARTITIONDATE nếu table có time partitioning
+            # Sử dụng _PARTITIONDATE chỉ nếu table có time partitioning
             if partition_type == "timestamp":
                 # For products table: partition by DATE(extraction_timestamp)
                 sql = f"""
                 DELETE FROM `{table_id}`
                 WHERE DATE(extraction_timestamp) = DATE('{partition_date.isoformat()}')
                 """
-            else:
-                # For bills table: partition by date field directly
+            elif has_partitioning:
+                # For bills table: partition by date field directly, use _PARTITIONDATE if table has partitioning
                 sql = f"""
                 DELETE FROM `{table_id}`
                 WHERE _PARTITIONDATE = DATE('{partition_date.isoformat()}')
+                """
+            else:
+                # Table không có partitioning, dùng field trực tiếp
+                sql = f"""
+                DELETE FROM `{table_id}`
+                WHERE {partition_field} = DATE('{partition_date.isoformat()}')
                 """
             
             query_job = self.bq_client.query(sql)

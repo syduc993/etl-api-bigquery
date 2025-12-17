@@ -58,7 +58,8 @@ CREATE OR REPLACE TABLE `{project_id}.{dataset}.fact_sales_bills_product_v3_0` (
     amount FLOAT64, -- Thành tiền
     
     -- Metadata
+    bill_date DATE, -- Date from bills table for partitioning
     extraction_timestamp TIMESTAMP
 )
-PARTITION BY DATE(extraction_timestamp)
+PARTITION BY bill_date
 CLUSTER BY bill_id, product_id;

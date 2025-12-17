@@ -77,8 +77,13 @@ class BillPipeline:
                     self.loader.load_bills(data=bills, partition_date=partition_date)
                 
                 # Step 3: Load products for this day
+                # Pass bills_data to create bill_id -> date mapping for bill_date
                 if products:
-                    self.loader.load_bill_products(data=products, partition_date=partition_date)
+                    self.loader.load_bill_products(
+                        data=products, 
+                        partition_date=partition_date,
+                        bills_data=bills
+                    )
                 
                 total_bills += len(bills)
                 total_products += len(products)

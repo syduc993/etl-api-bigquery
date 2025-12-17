@@ -304,9 +304,28 @@ class GCSLoader:
         
         # Create PyArrow table with or without explicit schema
         if schema:
+            # CRITICAL FIX: Đảm bảo DataFrame có TẤT CẢ schema fields trước khi write Parquet
+            # Nếu thiếu cột nào, thêm vào với giá trị None để đảm bảo schema consistency
+            schema_column_names = {field.name for field in schema}
+            df_column_names = set(df.columns)
+            
+            # Thêm các cột thiếu với giá trị None
+            missing_columns = schema_column_names - df_column_names
+            if missing_columns:
+                for col in missing_columns:
+                    df[col] = None
+                logger.debug(
+                    f"Added missing schema columns to DataFrame",
+                    entity=entity,
+                    missing_columns=list(missing_columns),
+                    total_schema_fields=len(schema_column_names),
+                    df_columns_before=len(df_column_names),
+                    df_columns_after=len(df.columns)
+                )
+            
             # Use explicit schema - enforces types and handles coercion
-            # Filter schema to only include fields present in DataFrame
-            # This allows data to have extra fields while enforcing types for known fields
+            # Giờ tất cả schema fields đã có trong DataFrame, không cần filter nữa
+            # Nhưng vẫn filter để đảm bảo chỉ dùng fields có trong schema (tránh extra fields)
             df_columns = set(df.columns)
             schema_fields = [field for field in schema if field.name in df_columns]
             

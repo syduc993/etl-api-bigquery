@@ -16,17 +16,16 @@ from typing import Dict, Optional
 
 
 # Schema for nhanh/bill_products
-# Based on structure from extractor and BigQuery target schema
+# Based on flattened structure from BillLoader._flatten_bill_product() matching fact_sales_bills_product_v3_0 schema
 BILL_PRODUCTS_SCHEMA = pa.schema([
     # Bill reference
     pa.field('bill_id', pa.int64()),
     
-    # Product identification
-    pa.field('id', pa.int64()),  # Product ID from API
-    pa.field('product_id', pa.int64(), nullable=True),  # Alternative product_id field
-    pa.field('code', pa.string(), nullable=True),
-    pa.field('barcode', pa.string(), nullable=True),
-    pa.field('name', pa.string(), nullable=True),
+    # Product identification (flattened with product_ prefix to match BigQuery schema)
+    pa.field('product_id', pa.int64(), nullable=True),
+    pa.field('product_code', pa.string(), nullable=True),
+    pa.field('product_barcode', pa.string(), nullable=True),
+    pa.field('product_name', pa.string(), nullable=True),
     
     # Transaction fields - MUST be FLOAT64 to match BigQuery schema
     pa.field('quantity', pa.float64(), nullable=True),
@@ -34,20 +33,12 @@ BILL_PRODUCTS_SCHEMA = pa.schema([
     pa.field('discount', pa.float64(), nullable=True),  # Critical: always float64, never int64
     pa.field('amount', pa.float64(), nullable=True),
     
-    # VAT as nested struct (matches API structure and BigQuery STRUCT type)
-    pa.field('vat', pa.struct([
-        pa.field('percent', pa.int64(), nullable=True),
-        pa.field('amount', pa.float64(), nullable=True)
-    ]), nullable=True),
-    
-    # Additional fields that may exist in API response
-    pa.field('imexId', pa.int64(), nullable=True),
-    pa.field('imeiId', pa.int64(), nullable=True),
-    pa.field('imei', pa.list_(pa.string()), nullable=True),
-    pa.field('extendedWarrantyAmount', pa.float64(), nullable=True),
-    pa.field('giftProducts', pa.list_(pa.string()), nullable=True),
+    # VAT fields (flattened from nested vat struct)
+    pa.field('vat_percent', pa.int64(), nullable=True),
+    pa.field('vat_amount', pa.float64(), nullable=True),
     
     # Metadata
+    pa.field('bill_date', pa.date32(), nullable=True),  # DATE field for partitioning
     pa.field('extraction_timestamp', pa.timestamp('us'), nullable=True),  # TIMESTAMP với microsecond precision (BigQuery compatible)
 ])
 
